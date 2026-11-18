@@ -1,105 +1,73 @@
-// input.js — keyboard + mouse state, with edge-triggered presses and a
-// virtual input the autopilot (shots) and tests drive instead of the keys.
-
-const GAME_KEYS = [
-  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'Space',
-  'KeyF', 'KeyE', 'KeyQ', 'KeyR', 'KeyM', 'KeyV', 'Digit1', 'Digit2',
-  'Digit3', 'Digit4', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown',
-];
+// NEON TIDE — input.js
+// Keyboard + mouse state. Two views of a key: held (down) and just pressed
+// this frame (pressed). The main loop calls endFrame() after each step so a
+// press is only ever seen once. Pointer lock gives mouse-look; it is optional
+// and never required for the game to run.
 
 export class Input {
-  constructor(target) {
-    this.target = target;
-    this.keys = new Set();
-    this.pressedKeys = new Set();
-    this.mouse = { x: 0, y: 0, down: false, clicked: false };
-    this.virtual = new Set();
+  constructor() {
+    this.down = new Set();     // codes held right now
+    this.pressed = new Set();  // codes pressed since the last endFrame
+    this.mouseDX = 0;          // accumulated mouse movement since last frame
+    this.mouseDY = 0;
+    this.mouseDown = false;    // left button held
+    this.mouseClicked = false; // left button pressed since last endFrame
+    this.pointerLocked = false;
     this._onKeyDown = (e) => {
-      if (!GAME_KEYS.includes(e.code)) return;
-      if (!e.repeat) this.pressedKeys.add(e.code);
-      this.keys.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+      if (e.repeat) return;
+      if (!this.down.has(e.code)) this.pressed.add(e.code);
+      this.down.add(e.code);
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     };
-    this._onKeyUp = (e) => {
-      this.keys.delete(e.code);
-    };
+    this._onKeyUp = (e) => { this.down.delete(e.code); };
     this._onMouseMove = (e) => {
-      const r = this.target.getBoundingClientRect();
-      this.mouse.x = e.clientX - r.left;
-      this.mouse.y = e.clientY - r.top;
+      if (!this.pointerLocked) return;
+      this.mouseDX += e.movementX || 0;
+      this.mouseDY += e.movementY || 0;
     };
     this._onMouseDown = (e) => {
       if (e.button !== 0) return;
-      this.mouse.down = true;
-      this.mouse.clicked = true;
+      this.mouseDown = true;
+      this.mouseClicked = true;
     };
-    this._onMouseUp = (e) => {
-      if (e.button !== 0) return;
-      this.mouse.down = false;
+    this._onMouseUp = (e) => { if (e.button === 0) this.mouseDown = false; };
+    this._onLockChange = () => {
+      this.pointerLocked = document.pointerLockElement != null;
     };
-    this._onBlur = () => {
-      this.keys.clear();
-      this.mouse.down = false;
-    };
+    this._onBlur = () => { this.down.clear(); this.mouseDown = false; };
   }
 
-  attach() {
+  attach(canvas) {
+    this.canvas = canvas;
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
     window.addEventListener('blur', this._onBlur);
-    this.target.addEventListener('mousemove', this._onMouseMove);
-    this.target.addEventListener('mousedown', this._onMouseDown);
+    document.addEventListener('mousemove', this._onMouseMove);
+    canvas.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
+    document.addEventListener('pointerlockchange', this._onLockChange);
   }
 
-  detach() {
-    window.removeEventListener('keydown', this._onKeyDown);
-    window.removeEventListener('keyup', this._onKeyUp);
-    window.removeEventListener('blur', this._onBlur);
-    this.target.removeEventListener('mousemove', this._onMouseMove);
-    this.target.removeEventListener('mousedown', this._onMouseDown);
-    window.removeEventListener('mouseup', this._onMouseUp);
+  // Ask the browser to lock the pointer to the canvas (mouse-look). Safe to
+  // call any time; a failure is swallowed.
+  lockPointer() {
+    try {
+      if (this.canvas && !this.pointerLocked) this.canvas.requestPointerLock();
+    } catch (e) { /* pointer lock is a nicety, never a requirement */ }
   }
 
-  /** Held down, real or virtual. */
-  down(code) {
-    return this.keys.has(code) || this.virtual.has(code);
+  unlockPointer() {
+    try { if (this.pointerLocked) document.exitPointerLock(); } catch (e) { /* ignore */ }
   }
 
-  /** Pressed since the last endFrame(), real keys only. */
-  pressed(code) {
-    return this.pressedKeys.has(code);
-  }
+  isDown(code) { return this.down.has(code); }
+  wasPressed(code) { return this.pressed.has(code); }
 
-  /** The mouse was clicked since the last endFrame(). */
-  clicked() {
-    return this.mouse.clicked;
-  }
-
-  /** Drive a key from the autopilot instead of the keyboard. */
-  setVirtual(code, on) {
-    if (on) this.virtual.add(code);
-    else this.virtual.delete(code);
-  }
-
-  clearVirtual() {
-    this.virtual.clear();
-  }
-
-  /** Call once per frame after the game has read the input. */
+  // Call once per rendered frame, after the sim steps, to clear edges.
   endFrame() {
-    this.pressedKeys.clear();
-    this.mouse.clicked = false;
-  }
-
-  /** WASD drive/walk axes: x = strafe/right, y = forward. */
-  axes() {
-    let x = 0;
-    let y = 0;
-    if (this.down('KeyA')) x -= 1;
-    if (this.down('KeyD')) x += 1;
-    if (this.down('KeyW') || this.down('ArrowUp')) y += 1;
-    if (this.down('KeyS') || this.down('ArrowDown')) y -= 1;
-    return { x, y };
+    this.pressed.clear();
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.mouseClicked = false;
   }
 }

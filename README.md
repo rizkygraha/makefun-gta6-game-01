@@ -1,44 +1,69 @@
-# NEON TIDE
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
-[![rank](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/rank.svg)](https://make.fun/bounty/gta6-01)
-[![reward](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/reward.svg)](https://make.fun/bounty/gta6-01)
+# NEON TIDE — Make GTA 6
 
-An open-world crime game in the spirit of GTA 6, built for the [Make GTA 6 bounty](https://make.fun/bounty/gta6-01). Rain-soaked neon harbor city at night — Tidewater. Mara Voss, getaway driver, is back after three years away, and the Ebb owns the streets.
+A rain-soaked open-world crime game set in **Tidewater**, a neon harbour city
+at night. You are **Mara Voss**, a getaway driver back after three years away,
+working six jobs for fixer Ilya Kane while Commissioner Hale and the Ebb gang
+close in.
+
+Entry for the [make.fun gta6-01 bounty](https://make.fun/bounty/gta6-01).
 
 ## The game
 
-- **A complete open world**: the city of Tidewater — Neon Row, Dockside, Old Cannery, The Spire, Marina, and the Causeway bridge over the harbor.
-- **On foot and by car**: walk, sprint, steal any car with F, drive with arcade handling and a handbrake drift.
-- **Traffic and pedestrians** who drive the grid and run when the city gets loud.
-- **Wanted level 0–5**: named police units (Unit 7 — Kestrel, Unit 12 — Brine…) that pursue, ram, and set roadblocks, plus a helicopter with a searchlight at 3 stars.
-- **Six story jobs** with payouts from $1,200 to $8,000, stages, objectives and dialogue from fixer Ilya Kane and hacker Pip.
-- **Combat**: fists, pistol, SMG and carbine, with reloads, muzzle flash and tracers, against the Ebb and boss Dario Flint.
-- **HUD with a circular minimap**, a full city map screen (M), a radio with three synth stations (Q), and saves in localStorage.
-- **Activities**: street races, 16 Tide Tapes to collect, a safehouse, a respray garage that clears heat, and a hospital.
-
-## How to run
-
-```sh
-node serve.ts
-# open http://localhost:8080
-```
-
-No install, no network: three.js r160 is vendored under `game/vendor/`, everything else is the game's own code under `game/src/`.
+- **Open world on foot and by car** — a 440×440 grid city: Neon Row, Dockside,
+  Old Cannery, The Spire, Marina and The Causeway.
+- **Traffic and pedestrians** — civilian cars loop the blocks, pedestrians
+  stroll the sidewalks and stop for you.
+- **Wanted level and police** — 0–5 stars, named units with live states
+  (PURSUIT / RAMMING / ROADBLOCK) and a helicopter at three stars.
+- **Six story jobs** — LOW WATER, COLD CARGO, RISING TIDE, BLUE LIGHTS,
+  HARBOR LIGHTS and LAST TIDE, each in stages with dialogue and a beacon.
+- **Combat** — fists, pistol, SMG and carbine, with enemy health bars, muzzle
+  flashes and tracers; run foes over in a car.
+- **HUD with minimap** — cash, REP, clock, wanted stars, radio, objective
+  with distance, health and ammo, plus a full city map screen.
+- **Activities and progression** — 16 Tide Tapes to collect, a safehouse,
+  respray to clear heat, street races, REP levels and localStorage saves
+  (CONTINUE shows chapter, cash and day).
+- **Radio** — three WebAudio synth stations, no audio files.
 
 ## Controls
 
-WASD move / drive · Mouse aim · Click shoot · Shift sprint · Space handbrake · F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M map · V camera · Esc pause
+WASD walk / drive · mouse aim (click to shoot) · Shift sprint · Space handbrake ·
+F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M city map ·
+V camera · P pause.
 
-## Build
+## Run it
 
-`main.ts` at the repository root copies `game/` and `screenshots/` to `/output` and writes `/output/dossier.json` with `buildDossier` from `vendor/makefun-game.ts`:
+Serve `game/` with any static server and open `game/index.html` in desktop
+Chrome — no network requests, everything is vendored or generated in code
+(three.js r160 minified under `game/vendor/`).
+
+```sh
+node serve.ts        # serves game/ on http://localhost:8080
+```
+
+## Build the dossier
 
 ```sh
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-node ../gta6-01-kit/cli/makefun.mjs check --kit ../gta6-01-kit --repo .
 ```
+
+`main.ts` copies `game/` and `screenshots/` to the output directory and
+writes `dossier.json` with `vendor/makefun-game.ts`.
+
+## Screenshots
+
+Four real renders of the game's own code (`?shot=chase|start|combat|map`):
+
+1. `1-chase.jpg` — night rain chase (cover)
+2. `2-start.jpg` — title screen
+3. `3-combat.jpg` — on-foot shootout in Neon Row
+4. `4-map.jpg` — city map
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. Original city, characters, story and art — nothing from any commercial game.

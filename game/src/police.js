@@ -1,202 +1,223 @@
-// police.js — the wanted level and the Tidewater PD. Heat rises with
-// crime and cools when the player stays quiet; named units spawn to match
-// the stars, chase in PURSUIT, close in to RAM, and one sets a ROADBLOCK
-// ahead of a fast getaway. At three stars the helicopter comes up.
+// NEON TIDE — police.js
+// The wanted system. Named units with a visible state — PURSUIT, RAMMING or
+// ROADBLOCK — chase Mara, and a helicopter joins at three stars. Heat rises
+// with every crime and falls when she keeps her nose clean; the safehouse
+// respray clears it outright.
 
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.min.js';
 import { CFG } from './config.js';
-import { makeCarMesh, collideCircle } from './world.js';
 
-function heliMesh() {
+function makePoliceCar() {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1c2733, roughness: 0.5, metalness: 0.5 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 5), bodyMat);
-  body.position.y = 0;
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 5), bodyMat);
-  tail.position.set(0, 0.3, -4.5);
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.9, 1.6), new THREE.MeshStandardMaterial({ color: 0x0a0f18, roughness: 0.2, metalness: 0.7 }));
-  glass.position.set(0, 0.3, 2.2);
-  const rotor = new THREE.Mesh(new THREE.BoxGeometry(11, 0.08, 0.6), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 }));
-  rotor.position.y = 1.1;
-  const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.2, 0.5), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-  tailRotor.position.set(0.4, 0.4, -6.6);
+  const black = new THREE.MeshLambertMaterial({ color: 0x0c0d12 });
+  const white = new THREE.MeshLambertMaterial({ color: 0xd8dce4 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.62, 4.3), black);
+  body.position.y = 0.55;
   g.add(body);
+  const doors = new THREE.Mesh(new THREE.BoxGeometry(1.97, 0.4, 1.6), white);
+  doors.position.set(0, 0.6, 0.1);
+  g.add(doors);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 2.0), new THREE.MeshLambertMaterial({ color: 0x0e1620 }));
+  cabin.position.set(0, 1.05, -0.25);
+  g.add(cabin);
+  const barBase = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.3), black);
+  barBase.position.set(0, 1.4, -0.25);
+  g.add(barBase);
+  const red = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.32), new THREE.MeshBasicMaterial({ color: 0xff2233 }));
+  red.position.set(-0.28, 1.42, -0.25);
+  g.add(red);
+  const blue = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.32), new THREE.MeshBasicMaterial({ color: 0x2244ff }));
+  blue.position.set(0.28, 1.42, -0.25);
+  g.add(blue);
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0 });
+  for (const s of [-0.68, 0.68]) {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.14, 0.1), lightMat);
+    hl.position.set(s, 0.62, 2.16);
+    g.add(hl);
+  }
+  g.userData.red = red;
+  g.userData.blue = blue;
+  return g;
+}
+
+function makeHelicopter() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.1, 4.6), new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  g.add(body);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 4.2), new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  tail.position.set(0, 0.2, -4);
   g.add(tail);
-  g.add(glass);
+  const rotor = new THREE.Mesh(new THREE.BoxGeometry(9, 0.08, 0.5), new THREE.MeshBasicMaterial({ color: 0x888888 }));
+  rotor.position.y = 0.8;
   g.add(rotor);
-  g.add(tailRotor);
-  g.userData.rotor = rotor;
-  // The searchlight.
-  const spot = new THREE.SpotLight(0xfff2c0, 900, 120, 0.35, 0.5, 1.2);
-  spot.position.set(0, -1, 0);
-  const spotTarget = new THREE.Object3D();
-  g.add(spotTarget);
-  spot.target = spotTarget;
+  const spot = new THREE.Mesh(
+    new THREE.ConeGeometry(6, 42, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false })
+  );
+  spot.position.y = -21;
   g.add(spot);
-  g.userData.spot = spot;
-  g.userData.spotTarget = spotTarget;
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+  lamp.position.y = -0.8;
+  g.add(lamp);
+  g.userData.rotor = rotor;
   return g;
 }
 
 export class Police {
-  constructor(scene, world, rng) {
-    this.scene = scene;
-    this.world = world;
-    this.rng = rng;
-    this.heat = 0;
+  constructor(game) {
+    this.g = game;
     this.wanted = 0;
-    this.lastCrime = -99;
-    this.time = 0;
+    this.heat = 0;
+    this.lastCrimeAt = -999;
     this.units = [];
     this.heli = null;
-    this.heliName = null;
-    this.barPhase = 0;
+    this.bustTimer = 0;
+    this.flashT = 0;
   }
 
-  addHeat(n) {
-    this.heat = Math.min(100, this.heat + n);
-    this.lastCrime = this.time;
+  addWanted(n) {
+    this.wanted = Math.min(5, this.wanted + n);
+    this.heat = 0;
+    this.lastCrimeAt = this.g.time;
   }
 
-  _wantedFromHeat() {
-    if (this.heat >= 80) return 5;
-    if (this.heat >= 60) return 4;
-    if (this.heat >= 40) return 3;
-    if (this.heat >= 20) return 2;
-    if (this.heat >= 8) return 1;
-    return 0;
+  clearWanted() {
+    this.wanted = 0;
+    this.heat = 0;
   }
 
-  _spawnUnit() {
-    const idx = this.units.length % CFG.policeNames.length;
-    const name = CFG.policeNames[idx];
-    const mesh = makeCarMesh(0xe8e8e8, { glow: 0x2244ff, police: true });
-    // Spawn on a road 60–100 units from the player, roughly.
-    const a = this.rng.range(0, Math.PI * 2);
-    const d = this.rng.range(60, 100);
-    const x = Math.max(-430, Math.min(430, this._px + Math.cos(a) * d));
-    const z = Math.max(-430, Math.min(430, this._pz + Math.sin(a) * d));
-    mesh.position.set(x, 0, z);
-    this.scene.add(mesh);
-    const unit = { name, mesh, state: 'PURSUIT', heading: 0, vx: 0, vz: 0, speed: 0 };
+  _spawnUnit(name) {
+    const g = this.g;
+    const p = g.player.pos;
+    // Appear on a road 55-80 units away from Mara.
+    const spot = g.world.nearestRoadPoint(p.x + g.rng.range(-70, 70), p.z + g.rng.range(-70, 70));
+    const mesh = makePoliceCar();
+    mesh.position.set(spot.x, 0, spot.z);
+    g.scene.add(mesh);
+    const unit = { name, state: 'PURSUIT', mesh, heading: 0, speed: 0, stateT: 0 };
     this.units.push(unit);
     return unit;
   }
 
   _removeUnit(unit) {
-    this.scene.remove(unit.mesh);
-    this.units.splice(this.units.indexOf(unit), 1);
+    this.g.scene.remove(unit.mesh);
+    const i = this.units.indexOf(unit);
+    if (i >= 0) this.units.splice(i, 1);
   }
 
-  update(dt, player) {
-    this.time += dt;
-    this._px = player.x;
-    this._pz = player.z;
-    // Heat cools when the player has been quiet for a while.
-    if (this.time - this.lastCrime > 6) {
-      this.heat = Math.max(0, this.heat - CFG.tuning.wantedDecay * 8 * dt);
+  _spawnHeli() {
+    const mesh = makeHelicopter();
+    mesh.position.set(this.g.player.pos.x, 42, this.g.player.pos.z - 20);
+    this.g.scene.add(mesh);
+    this.heli = mesh;
+  }
+
+  _removeHeli() {
+    if (!this.heli) return;
+    this.g.scene.remove(this.heli);
+    this.heli = null;
+  }
+
+  update(dt) {
+    const g = this.g;
+    const p = g.player;
+    // Heat decays: one star falls after a quiet stretch.
+    if (this.wanted > 0) {
+      this.heat += dt;
+      if (this.heat > CFG.police.decaySeconds && g.time - this.lastCrimeAt > CFG.police.decaySeconds) {
+        this.wanted--;
+        this.heat = 0;
+      }
     }
-    const want = this._wantedFromHeat();
-    if (want !== this.wanted) this.wanted = want;
-
-    // Match the number of units to the stars.
-    const wantUnits = this.wanted === 0 ? 0 : Math.min(4, this.wanted + 1);
-    while (this.units.length < wantUnits) this._spawnUnit();
-    while (this.units.length > wantUnits) this._removeUnit(this.units[this.units.length - 1]);
-
+    // Match the unit count to the wanted level.
+    while (this.units.length < this.wanted) {
+      this._spawnUnit(CFG.police.names[this.units.length % CFG.police.names.length]);
+    }
+    while (this.units.length > this.wanted) {
+      this._removeUnit(this.units[this.units.length - 1]);
+    }
     // Helicopter at three stars and up.
-    if (this.wanted >= 3 && !this.heli) {
-      this.heli = heliMesh();
-      this.heliName = CFG.heliNames[this.units.length % CFG.heliNames.length];
-      this.scene.add(this.heli);
-    }
-    if (this.wanted < 3 && this.heli) {
-      this.scene.remove(this.heli);
-      this.heli = null;
-      this.heliName = null;
-    }
+    if (this.wanted >= 3 && !this.heli) this._spawnHeli();
+    if (this.wanted < 3 && this.heli) this._removeHeli();
 
     // Flash the light bars.
-    this.barPhase += dt;
-    const redOn = Math.floor(this.barPhase * 2.5) % 2 === 0;
+    this.flashT += dt;
+    const redOn = Math.floor(this.flashT * 4) % 2 === 0;
     for (const u of this.units) {
-      const bar = u.mesh.userData.bar;
-      if (bar) {
-        bar.userData.red.material.color.setHex(redOn ? 0xff2233 : 0x551111);
-        bar.userData.blue.material.color.setHex(redOn ? 0x111155 : 0x2244ff);
-      }
+      u.mesh.userData.red.material.color.setHex(redOn ? 0xff2233 : 0x550000);
+      u.mesh.userData.blue.material.color.setHex(redOn ? 0x000044 : 0x2244ff);
     }
 
-    const pSpeed = player.inCar ? Math.hypot(player.carVel.x, player.carVel.z) : 0;
-    const pHeading = player.inCar ? player.carHeading : player.yaw;
-    for (const u of this.units) {
-      const dx = player.x - u.mesh.position.x;
-      const dz = player.z - u.mesh.position.z;
-      const dist = Math.hypot(dx, dz) || 1;
-      // Pick a state.
-      if (dist < 14) u.state = 'RAMMING';
-      else if (pSpeed > 16 && u === this.units[0] && dist > 40) u.state = 'ROADBLOCK';
-      else if (dist > 45) u.state = 'PURSUIT';
-      else if (u.state === 'RAMMING' && dist > 22) u.state = 'PURSUIT';
-
-      let tx;
-      let tz;
-      if (u.state === 'ROADBLOCK') {
-        // Get ahead of the getaway and stop across the road.
-        tx = player.x + Math.sin(pHeading) * 55;
-        tz = player.z + Math.cos(pHeading) * 55;
+    // ---- unit driving ----
+    const px = p.pos.x, pz = p.pos.z;
+    const pSpeed = Math.abs(p.speed || 0);
+    this.units.forEach((u, i) => {
+      u.stateT += dt;
+      const ux = u.mesh.position.x, uz = u.mesh.position.z;
+      const dx = px - ux, dz = pz - uz;
+      const dist = Math.hypot(dx, dz) || 0.01;
+      // State: first unit roadblocks a fast driver, close ones ram, else pursue.
+      let targetX = px, targetZ = pz;
+      if (i === 0 && p.mode === 'car' && pSpeed > 12) {
+        u.state = 'ROADBLOCK';
+        targetX = px + Math.sin(p.heading) * 26;
+        targetZ = pz + Math.cos(p.heading) * 26;
+      } else if (dist < CFG.police.ramRange) {
+        u.state = 'RAMMING';
       } else {
-        tx = player.x;
-        tz = player.z;
+        u.state = 'PURSUIT';
       }
-      const tdx = tx - u.mesh.position.x;
-      const tdz = tz - u.mesh.position.z;
-      const targetHeading = Math.atan2(tdx, tdz);
-      // Steer toward the target heading.
-      let dh = targetHeading - u.heading;
+      const wantHeading = Math.atan2(targetX - ux, targetZ - uz);
+      let dh = wantHeading - u.heading;
       while (dh > Math.PI) dh -= Math.PI * 2;
       while (dh < -Math.PI) dh += Math.PI * 2;
-      u.heading += Math.max(-2.2 * dt, Math.min(2.2 * dt, dh * 3 * dt));
-      const maxSpeed = u.state === 'RAMMING' ? 31 : u.state === 'ROADBLOCK' ? 26 : 28;
-      const accel = u.state === 'ROADBLOCK' && dist < 20 ? -18 : 14;
-      u.speed = Math.max(0, Math.min(maxSpeed, u.speed + accel * dt));
-      if (u.state === 'ROADBLOCK' && dist < 18) u.speed = 0;
-      const fx = Math.sin(u.heading);
-      const fz = Math.cos(u.heading);
-      u.vx = fx * u.speed;
-      u.vz = fz * u.speed;
-      let nx = u.mesh.position.x + u.vx * dt;
-      let nz = u.mesh.position.z + u.vz * dt;
-      [nx, nz] = collideCircle(this.world, nx, nz, 2.1);
-      u.mesh.position.x = nx;
-      u.mesh.position.z = nz;
+      u.heading += Math.max(-2.4 * dt, Math.min(2.4 * dt, dh));
+      const wantSpeed = u.state === 'RAMMING' ? CFG.police.unitSpeed + 4 : CFG.police.unitSpeed;
+      u.speed += (wantSpeed - u.speed) * Math.min(1, dt * 1.2);
+      const nx = ux + Math.sin(u.heading) * u.speed * dt;
+      const nz = uz + Math.cos(u.heading) * u.speed * dt;
+      const hit = g.world.collideCircle(nx, nz, 1.7);
+      u.mesh.position.set(hit.x, 0, hit.z);
       u.mesh.rotation.y = u.heading;
-      for (const w of u.mesh.userData.wheels) w.rotation.x += (u.speed * dt) / 0.38;
-      u.dist = dist;
+      // A ram that connects slows Mara down.
+      if (dist < 3.2) {
+        if (p.mode === 'car') p.speed *= Math.max(0, 1 - 2.2 * dt);
+        else {
+          this.bustTimer += dt;
+          if (this.bustTimer > CFG.police.bustTime) {
+            this.bustTimer = 0;
+            this._busted();
+          }
+        }
+      } else {
+        this.bustTimer = Math.max(0, this.bustTimer - dt);
+      }
+    });
+
+    // ---- helicopter: hover above Mara, rotor spinning ----
+    if (this.heli) {
+      const h = this.heli;
+      h.position.x += (px - h.position.x) * Math.min(1, dt * 1.1);
+      h.position.z += (pz - 14 - h.position.z) * Math.min(1, dt * 1.1);
+      h.position.y = 42 + Math.sin(g.time * 0.8) * 1.5;
+      h.userData.rotor.rotation.y += dt * 22;
+      h.rotation.y = Math.atan2(px - h.position.x, pz - h.position.z);
     }
 
-    if (this.heli) {
-      const t = this.time * 0.25;
-      this.heli.position.set(
-        player.x + Math.cos(t) * 26,
-        42,
-        player.z + Math.sin(t) * 26,
-      );
-      this.heli.rotation.y = Math.atan2(player.x - this.heli.position.x, player.z - this.heli.position.z);
-      this.heli.userData.rotor.rotation.y += dt * 22;
-      this.heli.userData.spotTarget.position.set(
-        player.x - this.heli.position.x,
-        -42,
-        player.z - this.heli.position.z,
-      );
-    }
+    g.audio.setSiren(this.wanted > 0);
   }
 
-  /** The units the HUD lists, nearest first. */
-  listUnits() {
-    return this.units
-      .slice()
-      .sort((a, b) => (a.dist ?? 999) - (b.dist ?? 999))
-      .map((u) => ({ name: u.name, state: u.state, dist: Math.round(u.dist ?? 0) }));
+  _busted() {
+    const g = this.g;
+    const lost = Math.floor(g.cash * 0.1);
+    g.cash -= lost;
+    this.clearWanted();
+    const s = g.world.spots.safehouse;
+    g.player.pos.set(s.x, 0, s.z);
+    if (g.player.car) { g.player.car = null; g.player.mode = 'foot'; g.player.mesh.visible = true; }
+    g.player.mesh.position.copy(g.player.pos);
+    g.banner('BUSTED', 'Commissioner Hale let you off light — $' + lost + ' in fines');
+    g.audio.sfx('busted');
+    g.saveProgress();
   }
 }

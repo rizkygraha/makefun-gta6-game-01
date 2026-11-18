@@ -1,28 +1,30 @@
-// audio.js — WebAudio synth: three radio stations (a step sequencer with
-// a bass line, a lead and hats), an engine hum that follows the car's
-// speed, a two-tone siren that follows the wanted level, and small SFX.
-// Everything is synthesized; there are no audio files. The context only
-// starts on a user gesture, and every call is safe while it is suspended.
+// NEON TIDE — audio.js
+// WebAudio synth: three radio stations (a step sequencer playing bass, lead
+// and hats from each station's scale) plus one-shot sound effects and a
+// two-tone police siren. No audio files. Everything is guarded so the game
+// plays exactly the same with sound unavailable.
 
 import { CFG } from './config.js';
 
+const SEMI = (n) => Math.pow(2, n / 12);
+
 export class AudioSys {
-  constructor() {
+  constructor(game) {
+    this.g = game;
     this.ctx = null;
     this.master = null;
+    this.radioOn = false;
     this.station = 0;
-    this.beatTimer = null;
     this.step = 0;
-    this.engineOsc = null;
-    this.engineGain = null;
-    this.sirenOsc = null;
-    this.sirenGain = null;
-    this.sirenHigh = false;
-    this.sirenT = 0;
+    this.nextTime = 0;
+    this.sirenOn = false;
+    this.sirenTone = 0;
+    this.sirenNext = 0;
+    this._timer = null;
   }
 
-  /** Create the context on a user gesture (autoplay policy). Safe to call twice. */
-  unlock() {
+  // Call from a user gesture (click / key). Safe to call repeatedly.
+  ensure() {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
       return;
@@ -32,153 +34,145 @@ export class AudioSys {
       if (!AC) return;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.22;
+      this.master.gain.value = 0.4;
       this.master.connect(this.ctx.destination);
-      this._startEngine();
-      this._startSiren();
-      this.setStation(0);
-    } catch {
+      this._timer = setInterval(() => this._tick(), 60);
+    } catch (e) {
       this.ctx = null;
     }
   }
 
-  _note(freq, when, dur, type, vol) {
-    if (!this.ctx) return;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0, when);
-    g.gain.linearRampToValueAtTime(vol, when + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.001, when + dur);
-    o.connect(g);
-    g.connect(this.master);
-    o.start(when);
-    o.stop(when + dur + 0.05);
-  }
-
-  _hat(when) {
-    if (!this.ctx) return;
-    const len = this.ctx.sampleRate * 0.05;
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    const g = this.ctx.createGain();
-    g.gain.value = 0.12;
-    const f = this.ctx.createBiquadFilter();
-    f.type = 'highpass';
-    f.frequency.value = 6000;
-    src.connect(f);
-    f.connect(g);
-    g.connect(this.master);
-    src.start(when);
-  }
-
-  _scheduleBeat() {
-    if (!this.ctx) return;
-    const st = CFG.radio[this.station];
-    const beatSec = 60 / st.bpm;
-    const when = this.ctx.currentTime + 0.08;
-    const bass = st.bass[this.step % st.bass.length];
-    const lead = st.lead[this.step % st.lead.length];
-    this._note(bass, when, beatSec * 0.9, st.wave, 0.5);
-    if (this.step % 2 === 0) this._note(lead * 2, when, beatSec * 0.7, 'sine', 0.16);
-    this._hat(when + beatSec / 2);
-    this.step += 1;
-    this.beatTimer = window.setTimeout(() => this._scheduleBeat(), beatSec * 1000);
-  }
-
   setStation(i) {
     this.station = ((i % CFG.radio.length) + CFG.radio.length) % CFG.radio.length;
-    if (this.beatTimer) {
-      window.clearTimeout(this.beatTimer);
-      this.beatTimer = null;
-    }
     this.step = 0;
-    if (this.ctx) this._scheduleBeat();
+    if (this.ctx) this.nextTime = this.ctx.currentTime + 0.05;
   }
 
-  get stationName() {
-    return CFG.radio[this.station].name;
+  setSiren(on) {
+    this.sirenOn = on;
   }
 
-  _startEngine() {
-    this.engineOsc = this.ctx.createOscillator();
-    this.engineOsc.type = 'sawtooth';
-    this.engineOsc.frequency.value = 55;
-    const filt = this.ctx.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.frequency.value = 320;
-    this.engineGain = this.ctx.createGain();
-    this.engineGain.gain.value = 0;
-    this.engineOsc.connect(filt);
-    filt.connect(this.engineGain);
-    this.engineGain.connect(this.master);
-    this.engineOsc.start();
-  }
-
-  /** Call every frame: the hum follows the car's speed. */
-  engine(speed, inCar) {
-    if (!this.ctx || !this.engineOsc) return;
-    const target = inCar ? Math.min(0.16, 0.03 + speed * 0.004) : 0;
-    this.engineGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.1);
-    this.engineOsc.frequency.setTargetAtTime(55 + speed * 2.2, this.ctx.currentTime, 0.1);
-  }
-
-  _startSiren() {
-    this.sirenOsc = this.ctx.createOscillator();
-    this.sirenOsc.type = 'sine';
-    this.sirenOsc.frequency.value = 700;
-    this.sirenGain = this.ctx.createGain();
-    this.sirenGain.gain.value = 0;
-    this.sirenOsc.connect(this.sirenGain);
-    this.sirenGain.connect(this.master);
-    this.sirenOsc.start();
-  }
-
-  /** Call every frame: the siren wails while the heat is on. */
-  siren(dt, wanted) {
-    if (!this.ctx || !this.sirenOsc) return;
-    this.sirenT += dt;
-    if (this.sirenT > 0.45) {
-      this.sirenT = 0;
-      this.sirenHigh = !this.sirenHigh;
-      this.sirenOsc.frequency.value = this.sirenHigh ? 950 : 700;
-    }
-    this.sirenGain.gain.setTargetAtTime(wanted > 0 ? 0.05 : 0, this.ctx.currentTime, 0.2);
-  }
-
-  shoot() {
+  _note(freq, time, dur, type, vol) {
     if (!this.ctx) return;
-    const when = this.ctx.currentTime;
-    const len = this.ctx.sampleRate * 0.09;
+    const o = this.ctx.createOscillator();
+    const gn = this.ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    gn.gain.setValueAtTime(0, time);
+    gn.gain.linearRampToValueAtTime(vol, time + 0.01);
+    gn.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    o.connect(gn);
+    gn.connect(this.master);
+    o.start(time);
+    o.stop(time + dur + 0.05);
+  }
+
+  _noise(time, dur, vol, freq) {
+    if (!this.ctx) return;
+    const len = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
-    const g = this.ctx.createGain();
-    g.gain.value = 0.5;
-    const f = this.ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.value = 2400;
-    src.connect(f);
-    f.connect(g);
-    g.connect(this.master);
-    src.start(when);
+    const flt = this.ctx.createBiquadFilter();
+    flt.type = 'highpass';
+    flt.frequency.value = freq || 3000;
+    const gn = this.ctx.createGain();
+    gn.gain.value = vol;
+    src.connect(flt);
+    flt.connect(gn);
+    gn.connect(this.master);
+    src.start(time);
   }
 
-  blip(freq = 880) {
-    if (!this.ctx) return;
-    this._note(freq, this.ctx.currentTime, 0.12, 'sine', 0.3);
-    this._note(freq * 1.5, this.ctx.currentTime + 0.1, 0.18, 'sine', 0.25);
+  _tick() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const st = CFG.radio[this.station];
+    const stepDur = 60 / st.bpm / 4; // 16th notes
+    if (this.nextTime < this.ctx.currentTime) this.nextTime = this.ctx.currentTime + 0.05;
+    // Chord roots for a 4-bar loop (semitones from the station root).
+    const roots = [0, -4, 5, 7];
+    while (this.nextTime < this.ctx.currentTime + 0.22) {
+      const bar = Math.floor(this.step / 16) % 4;
+      const s16 = this.step % 16;
+      const root = st.root * SEMI(roots[bar]);
+      // Bass on every beat.
+      if (s16 % 4 === 0) this._note(root / 2, this.nextTime, stepDur * 3.2, 'sine', 0.5);
+      // Lead arp: walk the scale, one note per 8th.
+      if (s16 % 2 === 0) {
+        const deg = st.scale[(this.step * 3 + bar) % st.scale.length];
+        this._note(root * SEMI(deg) * 2, this.nextTime, stepDur * 1.6, st.wave, 0.10);
+      }
+      // Hat on the off-beats.
+      if (s16 % 4 === 2) this._noise(this.nextTime, 0.03, 0.05, 6000);
+      this.nextTime += stepDur;
+      this.step++;
+    }
+    // Police siren: two alternating tones.
+    if (this.sirenOn && this.ctx.currentTime >= this.sirenNext) {
+      this.sirenTone = 1 - this.sirenTone;
+      this._note(this.sirenTone ? 740 : 960, this.ctx.currentTime, 0.34, 'sine', 0.05);
+      this.sirenNext = this.ctx.currentTime + 0.38;
+    }
   }
 
-  missionDone() {
-    if (!this.ctx) return;
+  sfx(name) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
     const t = this.ctx.currentTime;
-    [523, 659, 784, 1046].forEach((f, i) => this._note(f, t + i * 0.09, 0.22, 'triangle', 0.3));
+    switch (name) {
+      case 'shoot':
+        this._noise(t, 0.07, 0.22, 1800);
+        this._note(170, t, 0.07, 'square', 0.12);
+        break;
+      case 'dry':
+        this._note(900, t, 0.03, 'square', 0.08);
+        break;
+      case 'reload':
+        this._note(500, t, 0.04, 'square', 0.08);
+        this._note(700, t + 0.09, 0.04, 'square', 0.08);
+        break;
+      case 'hit':
+        this._note(140, t, 0.12, 'sine', 0.25);
+        break;
+      case 'whizz':
+        this._noise(t, 0.12, 0.06, 5000);
+        break;
+      case 'pickup':
+        this._note(660, t, 0.09, 'sine', 0.16);
+        this._note(880, t + 0.08, 0.09, 'sine', 0.16);
+        this._note(1320, t + 0.16, 0.14, 'sine', 0.14);
+        break;
+      case 'steal':
+        this._note(220, t, 0.16, 'sawtooth', 0.12);
+        break;
+      case 'door':
+        this._note(180, t, 0.08, 'sine', 0.2);
+        break;
+      case 'crash':
+        this._noise(t, 0.22, 0.3, 700);
+        this._note(70, t, 0.2, 'sine', 0.3);
+        break;
+      case 'stage':
+        this._note(880, t, 0.1, 'sine', 0.15);
+        break;
+      case 'job':
+        this._note(523, t, 0.1, 'sine', 0.15);
+        this._note(784, t + 0.1, 0.14, 'sine', 0.15);
+        break;
+      case 'complete':
+        [523, 659, 784, 1047].forEach((f, i) => this._note(f, t + i * 0.09, 0.14, 'sine', 0.15));
+        break;
+      case 'down':
+        this._note(330, t, 0.1, 'square', 0.1);
+        this._note(220, t + 0.08, 0.16, 'square', 0.1);
+        break;
+      case 'wasted':
+      case 'busted':
+        [392, 330, 262, 196].forEach((f, i) => this._note(f, t + i * 0.16, 0.2, 'sawtooth', 0.1));
+        break;
+      default:
+        break;
+    }
   }
 }

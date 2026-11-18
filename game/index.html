@@ -3,147 +3,150 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NEON TIDE — Tidewater after dark</title>
+<link rel="icon" href="data:,">
+<title>NEON TIDE — Tidewater</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #05070f; }
-  body { font-family: 'Courier New', monospace; color: #dfe8ff; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  .hidden { display: none !important; }
-  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
-  #topbar { position: absolute; top: 12px; left: 14px; font-size: 20px; text-shadow: 0 0 8px #000, 0 2px 2px #000; }
-  #topbar .line { margin-bottom: 2px; }
-  #wanted { font-size: 24px; letter-spacing: 4px; color: #ffd23e; }
-  #cash { color: #39ff88; font-weight: bold; }
-  #rep { color: #22d3ee; }
-  #clock { color: #9fb4d8; font-size: 15px; }
-  #radio { position: absolute; top: 12px; right: 14px; font-size: 16px; color: #ff9ecf; text-shadow: 0 0 8px #000; }
-  #objective-wrap { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 0 8px #000, 0 2px 2px #000; }
-  #objective { font-size: 19px; color: #ffd23e; font-weight: bold; }
-  #objective-dist { font-size: 15px; color: #9fb4d8; }
-  #dialogue { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: min(620px, 86vw); background: rgba(5, 8, 18, 0.85); border: 1px solid #22d3ee; border-left: 5px solid #22d3ee; padding: 10px 14px; }
-  #dialogue-speaker { color: #22d3ee; font-weight: bold; font-size: 14px; margin-bottom: 4px; }
-  #dialogue-text { font-size: 16px; line-height: 1.4; }
-  #toast { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); background: rgba(5, 8, 18, 0.85); border: 1px solid #ffd23e; color: #ffd23e; padding: 8px 18px; font-size: 17px; font-weight: bold; text-align: center; }
-  #bottombar { position: absolute; bottom: 14px; left: 14px; }
-  #health { width: 220px; height: 12px; background: rgba(255,255,255,0.15); border: 1px solid #556; }
-  #health-fill { height: 100%; width: 100%; background: #39ff88; }
-  #ammo { margin-top: 6px; font-size: 16px; text-shadow: 0 0 8px #000; }
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
-  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 4px #000; }
-  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
-  #crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
-  #minimap { position: absolute; bottom: 14px; right: 14px; width: 180px; height: 180px; border-radius: 50%; border: 2px solid #22d3ee; background: rgba(5, 8, 18, 0.7); }
-  #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 6; box-shadow: inset 0 0 120px 40px rgba(255, 0, 40, 0.55); }
-  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(5,7,15,0.55) 0%, rgba(5,7,15,0.88) 70%, rgba(5,7,15,0.94) 100%); pointer-events: auto; }
-  .logo { font-size: 64px; font-weight: bold; letter-spacing: 10px; color: #ff2d78; text-shadow: 0 0 18px #ff2d78, 0 0 42px #ff2d78, 0 2px 0 #000; }
-  .logo span { color: #22d3ee; text-shadow: 0 0 18px #22d3ee, 0 0 42px #22d3ee, 0 2px 0 #000; }
-  .tagline { font-size: 18px; color: #9fb4d8; margin: 8px 0 4px; letter-spacing: 2px; }
-  .character { font-size: 16px; color: #ffd27a; margin-bottom: 26px; font-style: italic; }
-  .menu { display: flex; flex-direction: column; gap: 10px; width: 300px; }
-  .menu button, .overlay button { font-family: inherit; font-size: 18px; padding: 11px 16px; background: rgba(34, 211, 238, 0.12); color: #dfe8ff; border: 1px solid #22d3ee; cursor: pointer; letter-spacing: 2px; }
-  .menu button:hover, .overlay button:hover { background: rgba(34, 211, 238, 0.35); }
-  #continue-info { text-align: center; color: #9fb4d8; font-size: 14px; margin: 12px 0; }
-  .panel { background: rgba(5, 8, 18, 0.92); border: 1px solid #22d3ee; padding: 22px 26px; max-width: 92vw; }
-  .panel h2 { color: #22d3ee; letter-spacing: 4px; margin-bottom: 12px; }
-  .panel p, .panel li { font-size: 15px; line-height: 1.6; color: #cfe0ff; }
-  .panel ul { margin-left: 18px; }
-  #mapscreen { flex-direction: row; gap: 18px; align-items: flex-start; justify-content: center; padding: 20px; }
-  #mapcanvas { border: 2px solid #22d3ee; background: #0a0e18; width: min(62vh, 62vw); height: min(62vh, 62vw); }
-  #mapside { width: 320px; max-height: 80vh; overflow: auto; }
-  #mapside h2 { color: #ffd23e; letter-spacing: 3px; margin-bottom: 8px; }
-  .job { padding: 7px 9px; margin-bottom: 6px; border: 1px solid #334; font-size: 14px; }
-  .job.done { border-color: #39ff88; color: #9dffc4; }
-  .job.active { border-color: #ffd23e; color: #ffe9a8; }
-  .job.available { border-color: #22d3ee; color: #b8ecff; }
-  .job.locked { border-color: #334; color: #667; }
-  .job span { float: right; }
-  #mapstats { margin: 10px 0 14px; font-size: 13px; line-height: 1.6; color: #9fb4d8; }
-  #endcard-title { font-size: 56px; letter-spacing: 8px; color: #ff2233; text-shadow: 0 0 22px #ff2233; }
-  #endcard-text { font-size: 17px; color: #cfe0ff; margin: 12px 0 22px; max-width: 480px; text-align: center; line-height: 1.5; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #070b1d; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #e8ecf4; }
+  #game-container { position: fixed; inset: 0; }
+  #game-container canvas { display: block; width: 100%; height: 100%; }
+
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 5; }
+  .panel { background: rgba(7, 11, 29, 0.72); border: 1px solid rgba(120, 150, 220, 0.35); border-radius: 8px; padding: 8px 12px; }
+  #topleft { position: absolute; top: 12px; left: 12px; }
+  #cash { font-size: 26px; font-weight: bold; color: #2effc4; text-shadow: 0 0 8px rgba(46, 255, 196, 0.6); }
+  #rep { font-size: 14px; color: #9db8ff; margin-top: 2px; }
+  #clock { font-size: 13px; color: #8fa8d8; margin-top: 2px; }
+  #topright { position: absolute; top: 12px; right: 12px; text-align: right; }
+  #wanted { font-size: 24px; letter-spacing: 2px; }
+  #radio { font-size: 14px; color: #ff9de2; margin-top: 4px; }
+  #objective { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 380px; }
+  #objective-text { font-size: 16px; font-weight: bold; color: #ffe14d; }
+  #objective-dist { font-size: 13px; color: #c8d4f0; margin-top: 2px; }
+  #flash { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: bold; color: #2effc4; text-shadow: 0 0 8px rgba(46,255,196,0.7); display: none; }
+  #bottomleft { position: absolute; left: 12px; bottom: 12px; }
+  #healthbar { width: 220px; height: 14px; background: #1a2238; border: 1px solid #3a4a6e; border-radius: 7px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: #37d67a; }
+  #health-num { font-size: 13px; margin-top: 3px; color: #c8d4f0; }
+  #ammo { font-size: 18px; font-weight: bold; margin-top: 6px; color: #ffe9a8; }
+  #bottomright { position: absolute; right: 12px; bottom: 12px; text-align: right; }
+  #minimap { width: 180px; height: 180px; border-radius: 50%; border: 2px solid rgba(140, 170, 230, 0.6); background: #0a1024; }
+  #speed { font-size: 22px; font-weight: bold; color: #fff; margin-top: 6px; text-shadow: 0 0 10px rgba(255,255,255,0.5); display: none; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: 0; transform: translate(-50%, -50%); border: 2px solid #fff; border-radius: 50%; display: none; }
+  #crosshair::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; background: #fff; border-radius: 50%; transform: translate(-50%, -50%); }
+  #dialogue { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); width: 560px; max-width: 80%; display: none; }
+  #dialogue-who { font-size: 14px; font-weight: bold; color: #ff9de2; }
+  #dialogue-text { font-size: 16px; margin-top: 3px; line-height: 1.35; }
+  #banner { position: absolute; left: 50%; top: 32%; transform: translate(-50%, -50%); text-align: center; display: none; }
+  #banner-text { font-size: 44px; font-weight: bold; letter-spacing: 3px; color: #ffe14d; text-shadow: 0 0 18px rgba(255, 225, 77, 0.8); }
+  #banner-sub { font-size: 18px; color: #fff; margin-top: 6px; }
+  #prompt { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); font-size: 14px; color: #c8d4f0; background: rgba(7,11,29,0.72); border: 1px solid rgba(120,150,220,0.35); border-radius: 6px; padding: 5px 12px; display: none; }
+
+  /* ---- overlays ---- */
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 10; background: rgba(4, 7, 18, 0.55); }
+  .overlay-card { background: rgba(7, 11, 29, 0.92); border: 1px solid rgba(255, 46, 166, 0.5); border-radius: 12px; padding: 28px 34px; max-width: 720px; width: 92%; max-height: 92vh; overflow-y: auto; }
+  .overlay-card h1 { font-size: 54px; letter-spacing: 6px; color: #ff2ea6; text-shadow: 0 0 24px rgba(255, 46, 166, 0.8); text-align: center; }
+  .overlay-card h2 { font-size: 24px; letter-spacing: 3px; color: #22e6ff; text-align: center; margin-bottom: 8px; }
+  .tagline { text-align: center; font-size: 16px; color: #c8d4f0; margin: 10px 0 18px; line-height: 1.4; }
+  .menu-btn { display: block; width: 100%; margin: 8px 0; padding: 13px; font-size: 18px; font-weight: bold; letter-spacing: 2px; color: #070b1d; background: #2effc4; border: none; border-radius: 8px; cursor: pointer; pointer-events: auto; }
+  .menu-btn:hover { background: #5cffd6; }
+  .menu-btn.secondary { background: #22304f; color: #e8ecf4; }
+  .menu-btn.secondary:hover { background: #2e4066; }
+  #continue-info { text-align: center; font-size: 14px; color: #9db8ff; margin-top: -2px; margin-bottom: 6px; }
+  #crew-cards { display: flex; gap: 8px; margin: 16px 0 6px; }
+  .crew { flex: 1; background: #101830; border: 1px solid #2a3a5e; border-radius: 8px; padding: 10px 6px; text-align: center; }
+  .crew .face { width: 44px; height: 44px; margin: 0 auto 6px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: #070b1d; }
+  .crew b { display: block; font-size: 13px; }
+  .crew span { font-size: 11px; color: #8fa8d8; }
+  #title-howto { display: none; margin-top: 12px; font-size: 14px; line-height: 1.7; color: #c8d4f0; background: #101830; border-radius: 8px; padding: 12px 16px; }
+  #title-howto b { color: #ffe14d; }
+
+  /* ---- map screen ---- */
+  #map-screen .overlay-card { max-width: 1060px; display: flex; gap: 18px; }
+  #map-canvas { width: 560px; height: 560px; border: 1px solid #2a3a5e; border-radius: 8px; background: #0a1024; flex-shrink: 0; }
+  #map-side { flex: 1; }
+  #map-jobs { margin: 10px 0; }
+  .map-job { background: #101830; border: 1px solid #2a3a5e; border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; }
+  .map-job b { display: block; font-size: 15px; }
+  .map-job span { font-size: 12px; color: #8fa8d8; }
+  .map-job em { float: right; font-style: normal; font-size: 12px; font-weight: bold; }
+  .map-job.done em { color: #37d67a; }
+  .map-job.active { border-color: #ffe14d; }
+  .map-job.active em { color: #ffe14d; }
+  .map-job.locked em { color: #5a6b8a; }
+  #map-stats { font-size: 14px; color: #c8d4f0; margin: 10px 0; line-height: 1.6; }
+  .legend { font-size: 13px; color: #8fa8d8; line-height: 1.7; }
+  .legend b { color: #ffe14d; }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
+<div id="game-container"></div>
+
 <div id="hud">
-  <div id="topbar">
-    <div class="line"><span id="wanted">☆☆☆☆☆</span></div>
-    <div class="line"><span id="cash">$320</span> &nbsp;<span id="rep">REP 1</span></div>
-    <div class="line"><span id="clock">Day 1 · 21:40</span></div>
-  </div>
-  <div id="radio">♪ NEON FM</div>
-  <div id="objective-wrap"><div id="objective"></div><div id="objective-dist"></div></div>
-  <div id="dialogue" class="hidden"><div id="dialogue-speaker"></div><div id="dialogue-text"></div></div>
-  <div id="toast" class="hidden"></div>
-  <div id="bottombar">
-    <div id="health"><div id="health-fill"></div></div>
-    <div id="ammo">Pistol — 12 / 12</div>
-  </div>
-  <div id="crosshair" class="hidden"></div>
-  <canvas id="minimap" width="180" height="180"></canvas>
-</div>
-<div id="vignette" class="hidden"></div>
-
-<div id="title" class="overlay">
-  <div class="logo">NEON <span>TIDE</span></div>
-  <div class="tagline">TIDEWATER AFTER DARK — A GETAWAY DRIVER COMES HOME</div>
-  <div class="character">Mara Voss is back in Tidewater after three years away. The Ebb owns the streets. Take them back.</div>
-  <div class="menu">
-    <button id="btn-continue">CONTINUE</button>
-    <button id="btn-new">NEW GAME</button>
-    <button id="btn-controls">CONTROLS</button>
-    <button id="btn-howto">HOW TO PLAY</button>
-  </div>
-  <div id="continue-info"></div>
+  <div id="topleft" class="panel"><div id="cash">$420</div><div id="rep">REP 0</div><div id="clock">Day 1 22:15</div></div>
+  <div id="topright" class="panel"><div id="wanted">☆☆☆☆☆</div><div id="radio">♪ NEON 104.6</div></div>
+  <div id="objective" class="panel"><div id="objective-text"></div><div id="objective-dist"></div></div>
+  <div id="flash"></div>
+  <div id="bottomleft" class="panel"><div id="healthbar"><div id="health-fill"></div></div><div id="health-num">100</div><div id="ammo">Pistol 12 / 96</div></div>
+  <div id="bottomright"><canvas id="minimap" width="180" height="180"></canvas><div id="speed"></div></div>
+  <div id="crosshair"></div>
+  <div id="dialogue" class="panel"><div id="dialogue-who"></div><div id="dialogue-text"></div></div>
+  <div id="banner"><div id="banner-text"></div><div id="banner-sub"></div></div>
+  <div id="prompt"></div>
 </div>
 
-<div id="pause" class="overlay hidden">
-  <div class="panel">
-    <h2>PAUSED</h2>
-    <p>WASD move / drive · Mouse aim · Click shoot · Shift sprint · Space handbrake<br>
-    F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M map · V camera</p>
-    <div class="menu" style="margin-top: 16px;">
-      <button id="btn-resume">RESUME</button>
-      <button id="btn-quit">QUIT TO TITLE</button>
+<div id="title-screen" class="overlay">
+  <div class="overlay-card">
+    <h1>NEON TIDE</h1>
+    <div class="tagline">Rain-soaked Tidewater. One getaway driver. Six jobs.<br>Mara Voss is back — and the city never forgets a debt.</div>
+    <button id="continue-btn" class="menu-btn">CONTINUE</button>
+    <div id="continue-info"></div>
+    <button id="newgame-btn" class="menu-btn secondary">NEW GAME</button>
+    <button id="howto-btn" class="menu-btn secondary">HOW TO PLAY</button>
+    <div id="title-howto">
+      <b>WASD</b> walk / drive &nbsp;•&nbsp; <b>Mouse</b> aim (click to shoot) &nbsp;•&nbsp; <b>Shift</b> sprint<br>
+      <b>F</b> enter / steal car &nbsp;•&nbsp; <b>E</b> interact &nbsp;•&nbsp; <b>Space</b> handbrake<br>
+      <b>Q</b> radio &nbsp;•&nbsp; <b>R</b> reload &nbsp;•&nbsp; <b>1–4</b> weapons &nbsp;•&nbsp; <b>M</b> city map &nbsp;•&nbsp; <b>V</b> camera &nbsp;•&nbsp; <b>P</b> pause<br>
+      Steal cars, take jobs, dodge the heat. Collect all 16 Tide Tapes.
+    </div>
+    <div id="crew-cards">
+      <div class="crew"><div class="face" style="background:#ff2ea6">M</div><b>Mara Voss</b><span>Getaway driver</span></div>
+      <div class="crew"><div class="face" style="background:#22e6ff">I</div><b>Ilya Kane</b><span>Fixer</span></div>
+      <div class="crew"><div class="face" style="background:#2effc4">P</div><b>Pip</b><span>Hacker</span></div>
+      <div class="crew"><div class="face" style="background:#ffb020">D</div><b>Dario Flint</b><span>Rival wheelman</span></div>
+      <div class="crew"><div class="face" style="background:#ff3344">H</div><b>Comm. Hale</b><span>The Ebb’s shield</span></div>
     </div>
   </div>
 </div>
 
-<div id="mapscreen" class="overlay hidden">
-  <canvas id="mapcanvas" width="640" height="640"></canvas>
-  <div id="mapside">
-    <h2>TIDEWATER — CITY MAP</h2>
-    <div id="joblist"></div>
-    <div id="mapstats"></div>
-    <button id="btn-close-map">CLOSE (M)</button>
+<div id="map-screen" class="overlay">
+  <div class="overlay-card">
+    <canvas id="map-canvas" width="560" height="560"></canvas>
+    <div id="map-side">
+      <h2>TIDEWATER</h2>
+      <div id="map-jobs"></div>
+      <div id="map-stats"></div>
+      <div class="legend">
+        <b>◆</b> Job &nbsp; <b style="color:#ffe14d">■</b> Tide Tape &nbsp; <b style="color:#3a86ff">●</b> Police<br>
+        <b>—</b> Route to objective &nbsp;•&nbsp; Safehouse clears heat<br>
+        Press <b>M</b> to close the map.
+      </div>
+    </div>
   </div>
 </div>
 
-<div id="controls" class="overlay hidden">
-  <div class="panel">
-    <h2>HOW TO PLAY</h2>
-    <ul>
-      <li><b>WASD</b> — walk / drive. <b>Mouse</b> — aim. <b>Click</b> — shoot.</li>
-      <li><b>Shift</b> — sprint. <b>Space</b> — handbrake drift.</li>
-      <li><b>F</b> — get in a car (or steal one). <b>E</b> — interact, pick up, talk.</li>
-      <li><b>Q</b> — change radio station. <b>R</b> — reload. <b>1–4</b> — weapons.</li>
-      <li><b>M</b> — city map and jobs. <b>V</b> — chase / classic camera. <b>Esc</b> — pause.</li>
-      <li>Do jobs for Ilya and Pip to earn cash and REP. Lose the heat or pay a respray to clear it.</li>
-      <li>Collect the 16 Tide Tapes, race at the pink marker, save at the safehouse.</li>
-    </ul>
-    <div class="menu" style="margin-top: 16px;"><button id="btn-close-controls">CLOSE</button></div>
+<div id="pause-screen" class="overlay">
+  <div class="overlay-card" style="max-width:420px">
+    <h2>PAUSED</h2>
+    <div class="tagline">Tidewater waits for no one. Except now.</div>
+    <button id="resume-btn" class="menu-btn">RESUME</button>
+    <button id="restart-btn" class="menu-btn secondary">RESTART (NEW GAME)</button>
+    <button id="quit-title-btn" class="menu-btn secondary">QUIT TO TITLE</button>
   </div>
 </div>
 
-<div id="endcard" class="overlay hidden">
-  <div id="endcard-title">WASTED</div>
-  <div id="endcard-text"></div>
-  <div class="menu"><button id="btn-endcard">CONTINUE</button></div>
-</div>
-
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.js" } }
-</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
