@@ -1,4 +1,4 @@
-// NEON TIDE — every tuning number, name and story datum in one place.
+// NEON TIDE — all tuning numbers, names and story data in one place.
 // The city is a grid: BLOCK metres of buildings, ROAD metres of street,
 // GRID blocks a side, centred on the origin. Roads run along both axes at
 // every grid line, so traffic can loop the whole city.
@@ -40,7 +40,7 @@ export const PALETTE = {
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
-/** Districts, looked up by (x, z). Each has a name, a colour and a short line. */
+/** Districts, looked up by (x, z). Each has a name and a colour. */
 export function districtAt(x, z) {
   if (x >= 96 && z >= 48) return { name: 'MARINA', color: '#3dff8e' };
   if (x >= 96) return { name: 'THE CAUSEWAY', color: '#22e6ff' };

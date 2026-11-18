@@ -77,6 +77,7 @@ function makeWindowTexture(warm) {
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
+
 function makeSignTexture(text, color) {
   const c = document.createElement('canvas');
   c.width = 512;

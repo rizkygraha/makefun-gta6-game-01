@@ -106,11 +106,10 @@ export function createWorld(random) {
     }
   }
 
-  // Tide Tapes: 16 collectibles spread over the districts.
-  const tapes = [];
   // Tide Tapes: 16 collectibles spread over the districts. Same rule as
   // PLACES: every spot sits on a road, so the 2.5 m pickup radius is
   // always reachable (a block centre is often inside a building).
+  const tapes = [];
   const tapeSpots = [
     [168, 100], [-144, -120], [48, 24], [150, 100], [0, -150], [150, -24],
     [-24, 148], [-54, 72], [54, -72], [-150, 24], [24, -150], [120, -102],
