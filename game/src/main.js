@@ -1,309 +1,177 @@
-// NEON TIDE — boot and the one loop: input is read every frame, the world
-// advances in fixed 1/60 s steps, and the renderer paints what is there.
-// The game moves between five screens: title, play, map, paused and over.
-//
-// ?seed=N fixes the city. ?shot=chase|start|combat|map (with &seed=N)
-// stages that scene instead of running the loop, paints it twice and sets
-// window.__shotReady for a screenshot.
+// Boot, fixed-timestep loop, and screens. Title first, then play, M for
+// the map. With ?shot=<name>&seed=N the game stages one screenshot instead
+// of starting the loop: paint twice, then window.__shotReady.
 
-import { PLACES, RADIO, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld } from './world.js';
-import { createRenderer } from './render.js';
-import {
-  ACTION_CAMERA, ACTION_CONFIRM, ACTION_ENTER, ACTION_INTERACT,
-  ACTION_MAP, ACTION_PAUSE, ACTION_RADIO, ACTION_RELOAD, createInput,
-} from './input.js';
-import { createPlayer, tryEnterCar, updatePlayer } from './player.js';
-import { spawnTraffic, updateTraffic } from './traffic.js';
-import { createPolice, updatePolice } from './police.js';
-import { createMissions, startJob, tryInteract, tryStealStage, updateMissions } from './missions.js';
-import { reloadWeapon, updateCombat } from './combat.js';
-import { createHud } from './hud.js';
-import { createAudio } from './audio.js';
-import { clearSave, loadSave, writeSave } from './save.js';
+import * as THREE from '../vendor/three.module.js';
+import { RenderStage } from './render.js';
+import { buildWorld } from './world.js';
+import { Traffic } from './traffic.js';
+import { Player } from './player.js';
+import { Police } from './police.js';
+import { Missions } from './missions.js';
+import { Combat } from './combat.js';
+import { HUD } from './hud.js';
+import { AudioSys } from './audio.js';
+import { Input } from './input.js';
+import { makeRng } from './random.js';
+import { saveGame, loadGame, clearSave } from './save.js';
 import { stageShot } from './shots.js';
+import { RADIO } from './config.js';
 
-const MAX_FRAME = 0.25;
 const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+const seed = parseInt(params.get('seed') || '7', 10) || 7;
+const shotName = params.get('shot');
 
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
+const rng = makeRng(seed);
+const canvas = document.getElementById('game-canvas');
+const render = new RenderStage(canvas);
+const world = buildWorld(render.scene, rng);
+const input = new Input();
+input.attach();
+const audio = new AudioSys();
 
-function createGame(seedValue) {
-  const random = createRandom(seedValue);
-  const world = createWorld(random);
-  const playerCar = {
-    id: 'player-car', kind: 'player', wasTraffic: false,
-    // Parked on the x=0 road, facing south along it: W drives straight
-    // down an open road, never into a building.
-    x: 0, z: -18, angle: 0, speed: 0, velX: 0, velZ: 0,
-    color: 0x19c2d8, condition: 100,
-  };
-  const game = {
-    seed: seedValue,
-    random,
-    world,
-    player: createPlayer({ x: 0, z: -24 }),
-    playerCar,
-    cars: [playerCar],
-    peds: [],
-    enemies: [],
-    police: createPolice(),
-    mission: createMissions(),
-    radio: { station: 0 },
-    audio: createAudio(),
-    hud: createHud(),
-    screen: 'title',
-    day: 1,
-    clock: 21 * 3600, // 21:00 on day one
-    cash: 0,
-    rep: 0,
-    stats: { tapes: 0, properties: 0, jobsDone: 0 },
-    cameraMode: 'chase',
-    fx: { muzzle: null, tracers: [] },
-    hudMessage: null,
-  };
-  spawnTraffic(game);
-  return game;
-}
+const state = {
+  time: 0,
+  day: 1,
+  dayTime: 21 * 60 + 24,
+  wanted: 0,
+  rep: 0,
+  radioStation: 0,
+  screen: 'title',
+  camHeading: Math.PI,
+  rng,
+  render,
+  world,
+  input,
+  audio,
+  saveNow() {
+    saveGame(state);
+  },
+};
+state.traffic = new Traffic(render.scene, rng);
+state.player = new Player(render.scene, world, rng);
+state.police = new Police(render.scene, rng);
+state.missions = new Missions(render.scene, world);
+state.combat = new Combat(render.scene, rng);
+state.hud = new HUD();
+state.player.cash = 420;
 
-const game = createGame(seed);
-window.__game = game; // for debugging and automated smoke tests
-const renderer = createRenderer(canvas);
-renderer.buildCity(game.world);
-const input = createInput(canvas);
-
-function announce(message) {
-  status.textContent = message;
-}
-
-function applySave(save) {
-  if (!save) return;
-  game.cash = save.cash ?? 0;
-  game.rep = save.rep ?? 0;
-  game.day = save.day ?? 1;
-  game.clock = save.clock ?? 21 * 3600;
-  game.stats.tapes = save.tapes ?? 0;
-  game.stats.jobsDone = save.jobsDone ?? 0;
-  game.mission.jobIndex = Math.max(0, Math.min(5, (save.jobIndex ?? 0)));
-  startJob(game);
-  game.hud.setDialog(game.mission.dialog);
-}
-
-function step(inp, dt) {
-  game.clock += dt;
-  if (game.clock >= 86400) {
-    game.clock -= 86400;
-    game.day += 1;
-  }
-  // Mouse aim: raycast onto the ground through the current camera.
-  const m = inp.mouse();
-  const aim = renderer.aimPoint(m.x, m.y);
-  if (aim) {
-    game.player.aim.x = aim.x;
-    game.player.aim.z = aim.z;
-  }
-  updatePlayer(game, inp, dt);
-  updateTraffic(game, dt);
-  updatePolice(game, dt);
-  updateMissions(game, dt);
-  updateCombat(game, inp, dt);
-  const speed = game.player.inCar && game.player.car ? Math.abs(game.player.car.speed) : 0;
-  game.audio.update(speed, game.police.stars);
-  // The hospital heals Mara on foot.
-  const h = PLACES.hospital;
-  if (!game.player.inCar && Math.hypot(game.player.pos.x - h.x, game.player.pos.z - h.z) < 8) {
-    game.player.health = Math.min(100, game.player.health + 6 * dt);
-  }
-}
-
-function titleStep(dt) {
-  game.clock += dt;
-  if (game.clock >= 86400) {
-    game.clock -= 86400;
-    game.day += 1;
-  }
-  updateTraffic(game, dt);
-}
-
-function startNewGame() {
+state.hud.onNewGame = () => {
   clearSave();
-  game.audio.ensure();
-  startJob(game);
-  game.screen = 'play';
-  game.hud.showScreen('play');
-  game.hud.setDialog(game.mission.dialog);
-  announce('Playing. Job 1: Low Water.');
-}
+  startPlay();
+};
+state.hud.onContinue = () => {
+  const s = loadGame();
+  if (s) applySave(s);
+  startPlay();
+};
+state.hud.onResume = () => {
+  state.screen = 'play';
+  state.hud.hideMap();
+};
 
-function continueGame() {
-  const save = loadSave();
-  if (!save) return false;
-  game.audio.ensure();
-  applySave(save);
-  game.screen = 'play';
-  game.hud.showScreen('play');
-  announce('Continuing. Job ' + (save.jobIndex + 1) + '.');
-  return true;
-}
-
-let lastJobsDone = 0;
-
-function handleActions() {
-  const actions = input.takeActions();
-  const weapon = input.takeWeapon();
-  if (weapon >= 0) {
-    const locked = (weapon === 2 && game.mission.jobIndex < 2) || (weapon === 3 && game.mission.jobIndex < 4);
-    if (!locked) game.player.weapon = weapon;
-  }
-  if (game.screen === 'title') {
-    if (actions & ACTION_CONFIRM) startNewGame();
-    return;
-  }
-  if (game.screen === 'over') {
-    if (actions & ACTION_CONFIRM) window.location.reload();
-    return;
-  }
-  if (actions & ACTION_PAUSE) {
-    if (game.screen === 'play') {
-      game.screen = 'paused';
-      game.hud.showScreen('paused');
-      writeSave(game);
-      announce('Paused.');
-    } else if (game.screen === 'paused') {
-      game.screen = 'play';
-      game.hud.showScreen('play');
-      announce('Playing.');
-    } else if (game.screen === 'map') {
-      game.screen = 'play';
-      game.hud.showScreen('play');
-    }
-    return;
-  }
-  if (game.screen === 'paused') return;
-  if (actions & ACTION_MAP) {
-    if (game.screen === 'play') {
-      game.screen = 'map';
-      game.hud.drawMap(game);
-      game.hud.showScreen('map');
-      announce('City map.');
-    } else if (game.screen === 'map') {
-      game.screen = 'play';
-      game.hud.showScreen('play');
-    }
-    return;
-  }
-  if (game.screen !== 'play') return;
-  if (actions & ACTION_CAMERA) {
-    game.cameraMode = game.cameraMode === 'chase' ? 'classic' : 'chase';
-  }
-  if (actions & ACTION_RADIO) {
-    game.audio.ensure();
-    const station = game.audio.nextStation();
-    game.radio.station = RADIO.indexOf(station);
-    game.hudMessage = { text: station.name + ' — ' + station.track, ttl: 2 };
-  }
-  if (actions & ACTION_RELOAD) reloadWeapon(game);
-  if (actions & ACTION_ENTER) {
-    // A steal stage takes priority: advance the job, then get in the car.
-    // A successful enter/exit cuts the camera to the new view at once:
-    // lerping from the on-foot camera would swing through the car.
-    tryStealStage(game);
-    if (tryEnterCar(game)) renderer.snapCamera(game);
-  }
-  if (actions & ACTION_INTERACT) tryInteract(game);
-  if (actions & ACTION_CONFIRM) game.audio.ensure();
-  // Autosave when a job lands.
-  if (game.stats.jobsDone !== lastJobsDone) {
-    lastJobsDone = game.stats.jobsDone;
-    writeSave(game);
+function applySave(s) {
+  state.player.cash = s.cash;
+  state.rep = s.rep;
+  state.missions.jobIndex = s.jobIndex;
+  state.missions.jobsDone = s.jobsDone;
+  state.missions.tapes = s.tapes;
+  state.day = s.day;
+  state.player.pos.set(s.px, 0, s.pz);
+  for (let i = 0; i < Math.min(s.tapes, world.tapes.length); i++) {
+    world.tapes[i].taken = true;
+    state.missions.tapeMeshes[i].visible = false;
   }
 }
 
-function runShot(name) {
-  const scene = stageShot(name, game, step);
-  game.screen = scene;
-  game.hud.showScreen(scene);
-  if (scene === 'map') game.hud.drawMap(game);
-  if (game.mission.dialog) game.hud.setDialog(game.mission.dialog);
-  renderer.snapCamera(game);
-  let painted = 0;
-  function paint() {
-    renderer.draw(game, STEP, game.clock);
-    game.hud.update(game, STEP);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
+function startPlay() {
+  state.screen = 'play';
+  state.hud.hideTitle();
+  audio.ensure();
+  audio.startRadio();
 }
 
-function runGame() {
-  const save = loadSave();
-  game.hud.setContinue(save);
-  game.hud.showScreen('title');
-  announce('NEON TIDE. Press Enter or click to start.');
-
-  document.getElementById('btn-continue').addEventListener('click', () => {
-    if (!continueGame()) startNewGame();
-  });
-  document.getElementById('btn-new').addEventListener('click', () => startNewGame());
-  document.getElementById('btn-controls').addEventListener('click', () => {
-    document.getElementById('howto').classList.toggle('hidden');
-  });
-  document.getElementById('btn-sound').addEventListener('click', (event) => {
-    const on = event.currentTarget.textContent.includes('ON');
-    event.currentTarget.innerHTML = on ? 'SOUND: OFF<small>Radio and effects</small>' : 'SOUND: ON<small>Radio and effects</small>';
-  });
-  document.getElementById('btn-retry').addEventListener('click', () => window.location.reload());
-  window.addEventListener('pointerdown', () => game.audio.ensure(), { once: true });
-  window.addEventListener('keydown', () => game.audio.ensure(), { once: true });
-
-  let accumulator = 0;
-  let last = performance.now();
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (game.screen === 'play') {
-      while (accumulator >= STEP) {
-        step(input, STEP);
-        accumulator -= STEP;
-      }
-    } else if (game.screen === 'title') {
-      while (accumulator >= STEP) {
-        titleStep(STEP);
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(game, STEP, game.clock);
-    game.hud.update(game, STEP);
+function stepSim(dt) {
+  state.time += dt;
+  state.dayTime += dt * 0.5;
+  if (state.dayTime >= 24 * 60) {
+    state.dayTime -= 24 * 60;
+    state.day += 1;
   }
+  state.traffic.update(dt, state);
+  state.player.update(dt, state);
+  state.police.update(dt, state);
+  state.missions.update(dt, state);
+  state.combat.update(dt, state);
+  render.updateRain(dt, state.player.pos.x, state.player.pos.z);
+  state.camHeading = state.player.heading;
+  render.follow(dt, state.player.pos, state.player.heading, state.player.speed, !state.player.onFoot);
+  state.hud.update(state);
+}
 
-  function resize() {
-    renderer.resize(window.innerWidth, window.innerHeight);
+let last = performance.now();
+let acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.25) dt = 0.25;
+  if (state.screen === 'title') {
+    const a = state.time * 0.04;
+    render.setView(
+      new THREE.Vector3(Math.cos(a) * 130, 46, Math.sin(a) * 130),
+      new THREE.Vector3(0, 10, 0)
+    );
+    render.updateRain(dt, 0, 0);
+    state.time += dt;
+    render.render();
+    return;
   }
-  window.addEventListener('resize', resize);
-  resize();
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && game.screen === 'play') {
-      game.screen = 'paused';
-      game.hud.showScreen('paused');
-      writeSave(game);
-      announce('Paused.');
+  if (state.screen === 'map') {
+    if (input.pressed('Escape') || input.pressed('KeyM')) {
+      state.screen = 'play';
+      state.hud.hideMap();
     }
-  });
+    render.render();
+    return;
+  }
+  acc += dt;
+  let steps = 0;
+  while (acc >= 1 / 60 && steps < 5) {
+    stepSim(1 / 60);
+    acc -= 1 / 60;
+    steps += 1;
+  }
+  if (steps === 5) acc = 0;
+  if (input.pressed('KeyM')) {
+    state.screen = 'map';
+    state.hud.showMap();
+    state.hud.update(state);
+  }
+  if (input.pressed('KeyV')) {
+    render.mode = render.mode === 'chase' ? 'classic' : 'chase';
+  }
+  if (input.pressed('KeyQ')) {
+    state.radioStation = (state.radioStation + 1) % RADIO.length;
+    audio.setStation(state.radioStation);
+    state.hud.update(state);
+  }
+  render.render();
+}
 
+window.addEventListener('keydown', () => {
+  audio.ensure();
+  if (state.screen === 'play') audio.startRadio();
+}, { once: true });
+
+if (shotName) {
+  const ok = stageShot(shotName, state, (dt) => stepSim(dt));
+  state.hud.update(state);
+  render.render();
+  render.render();
+  window.__shotReady = !!ok;
+  window.__shotError = ok ? null : `unknown shot ${shotName}`;
+} else {
+  state.hud.showTitle(loadGame());
   requestAnimationFrame(frame);
 }
-
-if (shot) runShot(shot);
-else runGame();

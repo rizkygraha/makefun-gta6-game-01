@@ -1,1 +1,1 @@
-[{"name":"1-chase.jpg","query":"?shot=chase&seed=1"},{"name":"2-start.jpg","query":"?shot=start&seed=1"},{"name":"3-combat.jpg","query":"?shot=combat&seed=1"},{"name":"4-map.jpg","query":"?shot=map&seed=1"}]
+{"shots":[{"file":"1-chase.jpg","name":"chase"},{"file":"2-start.jpg","name":"start"},{"file":"3-combat.jpg","name":"combat"},{"file":"4-map.jpg","name":"map"}]}

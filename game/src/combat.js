@@ -1,146 +1,206 @@
-// NEON TIDE — combat on foot: weapons, hitscan shooting, enemies.
-// The player aims with the mouse (raycast onto the ground in main.js) and
-// clicks to fire; SMG fires while held. Enemies close in and shoot back
-// with poor aim. Kills during a combat stage count toward the mission.
+// Combat: the player's weapons and the Ebb who shoot back. Hitscan shots
+// from the camera's crosshair, muzzle flash, tracers, and enemies that close
+// in and fire. Dario Flint is the boss of the last job.
 
-import { WEAPONS } from './config.js';
-import { reportKill } from './missions.js';
+import * as THREE from '../vendor/three.module.js';
+import { WEAPONS, WANTED } from './config.js';
+import { collideCircle } from './world.js';
+import { makePedMesh } from './traffic.js';
 
-let enemyId = 0;
+const NAMES = ['Ebb Lookout', 'Ebb Enforcer', 'Ebb Guard', 'Ebb Runner'];
 
-/** Spawn `count` gang enemies around a point, facing the player. When a
- * facing is given, they spawn in an arc in front of it (for screenshots). */
-export function spawnEnemies(game, x, z, count, facing = null) {
-  for (let i = 0; i < count; i += 1) {
-    const a = facing === null ? game.random() * Math.PI * 2 : facing + (game.random() - 0.5) * 1.3;
-    const d = facing === null ? 9 + game.random() * 10 : 7 + game.random() * 4;
-    game.enemies.push({
-      id: 'enemy-' + (enemyId += 1),
-      x: x + Math.sin(a) * d,
-      z: z + Math.cos(a) * d,
-      angle: 0,
-      health: 100,
-      walkPhase: game.random() * 6,
-      shootTimer: 0.8 + game.random(),
-      speed: 3.2 + game.random() * 1.2,
+export class Combat {
+  constructor(scene, rng) {
+    this.scene = scene;
+    this.rng = rng;
+    this.enemies = [];
+    this.tracers = [];
+    this.cooldown = 0;
+    this.flash = new THREE.PointLight(0xffc860, 0, 18, 1.5);
+    this.scene.add(this.flash);
+    this.flashT = 0;
+    this.raycaster = new THREE.Raycaster();
+  }
+
+  _enemyMesh(isBoss) {
+    const g = makePedMesh(isBoss ? 0x8a1a1a : 0x3a1a1a);
+    const marker = new THREE.Mesh(
+      new THREE.OctahedronGeometry(isBoss ? 0.55 : 0.35),
+      new THREE.MeshBasicMaterial({ color: isBoss ? 0xffe62d : 0xff2d2d })
+    );
+    marker.position.y = 2.3;
+    g.add(marker);
+    g.userData.marker = marker;
+    return g;
+  }
+
+  spawnSquad(x, z, count, boss) {
+    const n = boss ? Math.max(1, count - 1) : count;
+    for (let i = 0; i < n; i++) {
+      this._spawnOne(x + this.rng.range(-10, 10), z + this.rng.range(-10, 10), false);
+    }
+    if (boss) this._spawnOne(x + 4, z - 4, true);
+  }
+
+  _spawnOne(x, z, isBoss) {
+    const mesh = this._enemyMesh(isBoss);
+    mesh.position.set(x, 0, z);
+    this.scene.add(mesh);
+    this.enemies.push({
+      x,
+      z,
+      health: isBoss ? 220 : 70,
+      maxHealth: isBoss ? 220 : 70,
+      mesh,
+      name: isBoss ? 'Dario Flint' : NAMES[this.rng.int(0, NAMES.length - 1)],
+      isBoss,
+      speed: this.rng.range(2.5, 3.6),
+      shootTimer: this.rng.range(0.8, 2),
+      phase: this.rng.range(0, 6),
     });
   }
-}
 
-/** Distance from a point to the segment (ax,az)-(bx,bz), in the ground plane. */
-function distToSegment(px, pz, ax, az, bx, bz) {
-  const dx = bx - ax;
-  const dz = bz - az;
-  const len2 = dx * dx + dz * dz;
-  let t = len2 === 0 ? 0 : ((px - ax) * dx + (pz - az) * dz) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const cx = ax + t * dx;
-  const cz = az + t * dz;
-  return Math.hypot(px - cx, pz - cz);
-}
+  _tracer(from, to) {
+    const dir = new THREE.Vector3().subVectors(to, from);
+    const len = dir.length();
+    const geo = new THREE.BoxGeometry(0.06, 0.06, len);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.9 });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(from).addScaledVector(dir, 0.5);
+    m.lookAt(to);
+    this.scene.add(m);
+    this.tracers.push({ mesh: m, life: 0.12 });
+  }
 
-function fireWeapon(game) {
-  const p = game.player;
-  const w = WEAPONS[p.weapon];
-  if (p.mag[p.weapon] <= 0) return;
-  p.mag[p.weapon] -= 1;
-  const from = { x: p.pos.x, y: 1.4, z: p.pos.z };
-  const to = { x: p.aim.x, y: 1.2, z: p.aim.z };
-  game.fx.muzzle = { x: from.x, y: from.y, z: from.z, ttl: 0.07 };
-  game.fx.tracers.push({ from, to, ttl: 0.09 });
-  game.audio?.shoot?.(w.name);
-  game.police.addHeat(3, 'shoot');
-  // Hitscan: the nearest enemy close to the firing line takes the damage.
-  let best = null;
-  let bestD = Infinity;
-  for (const en of game.enemies) {
-    const dLine = distToSegment(en.x, en.z, from.x, from.z, to.x, to.z);
-    const dPlayer = Math.hypot(en.x - p.pos.x, en.z - p.pos.z);
-    if (dLine < 1.6 && dPlayer <= w.range && dPlayer < bestD) {
-      bestD = dPlayer;
-      best = en;
+  _shoot(state) {
+    const p = state.player;
+    const w = WEAPONS[p.weapon];
+    if (w.ammo !== Infinity) {
+      if (p.ammo[p.weapon] <= 0) return;
+      p.ammo[p.weapon] -= 1;
+    }
+    this.cooldown = 1 / w.rate;
+    const cam = state.render.camera;
+    const from = new THREE.Vector3();
+    cam.getWorldPosition(from);
+    const dir = new THREE.Vector3();
+    cam.getWorldDirection(dir);
+    if (w.spread > 0) {
+      dir.x += (Math.random() - 0.5) * w.spread * 2;
+      dir.y += (Math.random() - 0.5) * w.spread * 2;
+      dir.normalize();
+    }
+    this.flash.position.copy(from).addScaledVector(dir, 2);
+    this.flash.intensity = 60;
+    this.flashT = 0.06;
+    state.audio.shoot();
+    this.raycaster.set(from, dir);
+    this.raycaster.far = w.range;
+    const meshes = this.enemies.map((e) => e.mesh);
+    const hits = this.raycaster.intersectObjects(meshes, true);
+    if (hits.length > 0) {
+      let obj = hits[0].object;
+      while (obj.parent && !this.enemies.some((e) => e.mesh === obj)) obj = obj.parent;
+      const enemy = this.enemies.find((e) => e.mesh === obj);
+      if (enemy) {
+        enemy.health -= w.damage;
+        state.audio.hit();
+        this._tracer(from, hits[0].point);
+        if (enemy.health <= 0) this._kill(enemy, state);
+      }
+    } else {
+      const end = from.clone().addScaledVector(dir, w.range);
+      this._tracer(from, end);
     }
   }
-  if (best) {
-    const pellets = w.pellets ?? 1;
-    best.health -= w.damage * pellets;
-    if (best.health <= 0) {
-      game.enemies = game.enemies.filter((e) => e !== best);
-      reportKill(game);
-      game.cash += 25;
-    }
-  }
-}
 
-export function reloadWeapon(game) {
-  const p = game.player;
-  const w = WEAPONS[p.weapon];
-  if (!Number.isFinite(w.mag) || p.mag[p.weapon] >= w.mag) return;
-  const need = w.mag - p.mag[p.weapon];
-  const take = Math.min(need, p.ammo[p.weapon]);
-  if (take <= 0) return;
-  p.ammo[p.weapon] -= take;
-  p.mag[p.weapon] += take;
-  game.audio?.reload?.();
-}
-
-function updateEnemies(game, dt) {
-  const p = game.player;
-  for (const en of [...game.enemies]) {
-    const dx = p.pos.x - en.x;
-    const dz = p.pos.z - en.z;
-    const dist = Math.hypot(dx, dz);
-    en.angle = Math.atan2(dx, dz);
-    if (dist > 14) {
-      en.x += Math.sin(en.angle) * en.speed * dt;
-      en.z += Math.cos(en.angle) * en.speed * dt;
-      en.walkPhase += dt * en.speed * 2.2;
-    }
-    en.shootTimer -= dt;
-    if (en.shootTimer <= 0 && dist < 34) {
-      en.shootTimer = 1.1 + game.random() * 0.9;
-      game.fx.tracers.push({
-        from: { x: en.x, y: 1.4, z: en.z },
-        to: { x: p.pos.x + (game.random() - 0.5) * 3, y: 1.2, z: p.pos.z + (game.random() - 0.5) * 3 },
-        ttl: 0.09,
-      });
-      game.audio?.enemyShot?.();
-      // Poor aim: about one shot in five lands.
-      if (game.random() < 0.18) {
-        p.health = Math.max(0, p.health - 4 - game.random() * 3);
-        game.hudMessage = { text: 'HIT — health ' + Math.round(p.health), ttl: 1 };
+  _melee(state) {
+    const p = state.player;
+    this.cooldown = 1 / WEAPONS[0].rate;
+    const fx = Math.sin(p.heading);
+    const fz = Math.cos(p.heading);
+    for (const e of [...this.enemies]) {
+      const dx = e.x - p.pos.x;
+      const dz = e.z - p.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < WEAPONS[0].range && (dx * fx + dz * fz) / d > 0.5) {
+        e.health -= WEAPONS[0].damage;
+        state.audio.hit();
+        if (e.health <= 0) this._kill(e, state);
       }
     }
   }
-}
 
-export function updateCombat(game, input, dt) {
-  const p = game.player;
-  if (p.inCar) return;
-  const w = WEAPONS[p.weapon];
-  p.fireTimer = (p.fireTimer ?? 0) - dt;
-  const wantFire = w.auto ? input.mouseHeld() : input.takeClick();
-  if (wantFire && p.fireTimer <= 0 && p.mag[p.weapon] > 0) {
-    fireWeapon(game);
-    p.fireTimer = 1 / w.rate;
+  _kill(enemy, state) {
+    const i = this.enemies.indexOf(enemy);
+    if (i >= 0) this.enemies.splice(i, 1);
+    this.scene.remove(enemy.mesh);
+    state.player.cash += 25;
+    state.wanted = Math.min(WANTED.maxStars, state.wanted + (enemy.isBoss ? 0 : 1));
+    if (enemy.isBoss) state.missions.say('Dario Flint is down. The Ebb is finished.', null);
   }
-  // Fists: a close enemy takes damage without ammo.
-  if (p.weapon === 0 && wantFire && p.fireTimer <= 0) {
-    for (const en of [...game.enemies]) {
-      if (Math.hypot(en.x - p.pos.x, en.z - p.pos.z) < w.range) {
-        en.health -= w.damage;
-        if (en.health <= 0) {
-          game.enemies = game.enemies.filter((e) => e !== en);
-          reportKill(game);
+
+  update(dt, state) {
+    const p = state.player;
+    const input = state.input;
+    if (this.cooldown > 0) this.cooldown -= dt;
+    if (this.flashT > 0) {
+      this.flashT -= dt;
+      if (this.flashT <= 0) this.flash.intensity = 0;
+    }
+    for (const t of [...this.tracers]) {
+      t.life -= dt;
+      t.mesh.material.opacity = Math.max(0, t.life / 0.12) * 0.9;
+      if (t.life <= 0) {
+        this.scene.remove(t.mesh);
+        this.tracers.splice(this.tracers.indexOf(t), 1);
+      }
+    }
+    if (state.screen === 'play' && p.onFoot) {
+      const w = WEAPONS[p.weapon];
+      const wantFire = w.auto ? input.mouseDown : input.consumeClick();
+      if (wantFire && this.cooldown <= 0) {
+        if (p.weapon === 0) this._melee(state);
+        else this._shoot(state);
+      }
+    }
+    for (const e of [...this.enemies]) {
+      const dx = p.pos.x - e.x;
+      const dz = p.pos.z - e.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 1.2) {
+        const step = Math.min(dist - 1.2, e.speed * dt);
+        let nx = e.x + (dx / dist) * step;
+        let nz = e.z + (dz / dist) * step;
+        const fixed = collideCircle(state.world.colliders, nx, nz, 0.5);
+        e.x = fixed.x;
+        e.z = fixed.z;
+      }
+      e.phase += dt * 4;
+      e.mesh.position.set(e.x, Math.abs(Math.sin(e.phase)) * 0.05, e.z);
+      e.mesh.rotation.y = Math.atan2(dx, dz);
+      e.mesh.userData.marker.rotation.y += dt * 3;
+      e.mesh.userData.marker.position.y = 2.3 + Math.sin(state.time * 3) * 0.12;
+      e.shootTimer -= dt;
+      if (e.shootTimer <= 0 && dist < 42 && p.onFoot) {
+        e.shootTimer = this.rng.range(1.4, 2.6);
+        const from = new THREE.Vector3(e.x, 1.5, e.z);
+        const to = new THREE.Vector3(p.pos.x, 1.2, p.pos.z);
+        this._tracer(from, to);
+        if (this.rng.chance(0.45)) {
+          p.health = Math.max(0, p.health - (e.isBoss ? 12 : 7));
+          state.audio.hit();
         }
-        break;
       }
     }
-    p.fireTimer = 1 / w.rate;
-  }
-  updateEnemies(game, dt);
-  if (p.health <= 0) {
-    game.screen = 'over';
-    game.audio?.gameOver?.();
+    if (p.health <= 0) {
+      p.health = 100;
+      p.cash = Math.max(0, p.cash - 200);
+      state.wanted = 0;
+      if (p.car) p.exitCar();
+      p.pos.set(140, 0, 140);
+      p.heading = Math.PI;
+      state.missions.say('You woke up at the Hospital. $200 gone. Hale is still out there.', null);
+    }
   }
 }

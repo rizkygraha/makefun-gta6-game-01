@@ -1,44 +1,48 @@
-// NEON TIDE — saves in localStorage (this browser only). A save keeps the
-// cash, respect, day, clock and job, so CONTINUE can pick up where the
-// player left off. Nothing leaves the machine.
+// Saves. One localStorage key, one JSON blob: cash, REP, jobs done, tapes,
+// and where Mara was standing. CONTINUE reads it back on the title screen.
 
-import { SAVE_KEY } from './config.js';
+const KEY = 'neon-tide-save-v1';
 
-export function loadSave() {
-  try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (typeof data !== 'object' || data === null) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export function writeSave(game) {
+export function saveGame(state) {
   try {
     const data = {
-      cash: game.cash,
-      rep: game.rep,
-      day: game.day,
-      clock: game.clock,
-      jobIndex: game.mission.jobIndex,
-      tapes: game.stats.tapes,
-      jobsDone: game.stats.jobsDone,
-      savedAt: new Date().toISOString(),
+      cash: state.cash,
+      rep: state.rep,
+      jobIndex: state.missions.jobIndex,
+      jobsDone: state.missions.jobsDone,
+      tapes: state.missions.tapes,
+      day: state.day,
+      px: state.player.pos.x,
+      pz: state.player.pos.z,
+      savedAt: Date.now(),
     };
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    localStorage.setItem(KEY, JSON.stringify(data));
     return true;
   } catch {
     return false;
   }
 }
 
+export function loadGame() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (typeof data.cash !== 'number') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export function hasSave() {
+  return loadGame() !== null;
+}
+
 export function clearSave() {
   try {
-    window.localStorage.removeItem(SAVE_KEY);
+    localStorage.removeItem(KEY);
   } catch {
-    // Storage can be off: nothing to clear.
+    // storage unavailable; a new game just starts fresh
   }
 }
