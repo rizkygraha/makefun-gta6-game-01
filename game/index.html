@@ -3,113 +3,147 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
-<title>NEON TIDE — Tidewater</title>
+<title>NEON TIDE — Tidewater after dark</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #070a18; }
-  body { font-family: 'Courier New', monospace; color: #e8ecf8; }
-  #game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05070f; }
+  body { font-family: 'Courier New', monospace; color: #dfe8ff; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   .hidden { display: none !important; }
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
-  .panel { background: rgba(5, 8, 20, 0.72); border: 1px solid rgba(45, 226, 255, 0.35); border-radius: 6px; padding: 8px 12px; }
-  #hud-topleft { position: absolute; top: 14px; left: 14px; }
-  #hud-cash { font-size: 26px; font-weight: bold; color: #2dff8f; letter-spacing: 1px; }
-  #hud-rep { font-size: 13px; color: #ffe62d; margin-top: 2px; }
-  #hud-clock { font-size: 12px; color: #9fb4ff; margin-top: 2px; }
-  #hud-topright { position: absolute; top: 14px; right: 14px; text-align: right; }
-  #hud-stars { font-size: 24px; letter-spacing: 3px; }
-  #hud-radio { font-size: 12px; color: #ff2d78; margin-top: 4px; }
-  #hud-objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #ffe62d; max-width: 46%; text-align: center; }
-  #minimap-wrap { position: absolute; left: 14px; bottom: 14px; width: 180px; height: 180px; border-radius: 50%; overflow: hidden; border: 2px solid rgba(45, 226, 255, 0.5); background: #0a0d18; }
-  #minimap { width: 180px; height: 180px; display: block; }
-  #hud-dialogue { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); max-width: 640px; font-size: 15px; line-height: 1.45; color: #ffffff; text-align: center; transition: opacity 0.3s; }
-  #hud-prompt { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #2de2ff; }
-  #hud-bottomright { position: absolute; right: 14px; bottom: 14px; text-align: right; }
-  #hud-weapon { font-size: 18px; font-weight: bold; color: #ffffff; }
-  #hud-ammo { font-size: 13px; color: #9fb4ff; }
-  #hud-health { width: 180px; height: 10px; background: rgba(255,255,255,0.15); border-radius: 5px; margin-top: 6px; overflow: hidden; }
-  #hud-health-fill { height: 100%; width: 100%; background: #2dff8f; }
-  #hud-speed { font-size: 20px; color: #ffe62d; margin-top: 6px; }
-  #hud-crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
-  #hud-crosshair::before, #hud-crosshair::after { content: ''; position: absolute; background: #ffffff; }
-  #hud-crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
-  #hud-crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
-  #title-screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(5,8,20,0.55) 0%, rgba(5,8,20,0.88) 70%, rgba(5,8,20,0.95) 100%); text-align: center; padding: 20px; }
-  #title-screen h1 { font-size: 64px; letter-spacing: 10px; color: #2de2ff; text-shadow: 0 0 24px rgba(45,226,255,0.8), 0 0 60px rgba(255,45,120,0.5); }
-  #title-screen h2 { font-size: 18px; letter-spacing: 4px; color: #ff2d78; margin-top: 4px; }
-  #title-tag { margin-top: 14px; font-size: 15px; color: #e8ecf8; max-width: 560px; line-height: 1.5; }
-  #title-menu { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; width: 300px; }
-  #title-menu button { pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 17px; letter-spacing: 2px; padding: 12px; color: #e8ecf8; background: rgba(45,226,255,0.12); border: 1px solid rgba(45,226,255,0.6); border-radius: 6px; }
-  #title-menu button:hover { background: rgba(45,226,255,0.3); }
-  #title-crew { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 720px; }
-  .crew { width: 128px; padding: 10px 8px; background: rgba(5,8,20,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; }
-  .crew b { display: block; font-size: 13px; color: #ffe62d; }
-  .crew span { display: block; font-size: 11px; color: #9fb4ff; margin-top: 4px; line-height: 1.35; }
-  #title-howto { margin-top: 22px; font-size: 12px; color: #9fb4ff; line-height: 1.6; max-width: 640px; }
-  #map-screen { position: fixed; inset: 0; z-index: 10; display: flex; gap: 18px; align-items: flex-start; justify-content: center; background: rgba(5,8,20,0.94); padding: 24px; }
-  #map-canvas { width: 640px; height: 640px; border: 1px solid rgba(45,226,255,0.4); border-radius: 6px; background: #0a0d18; }
-  #map-side { width: 300px; }
-  #map-side h2 { font-size: 20px; color: #2de2ff; letter-spacing: 3px; }
-  #map-jobs { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-  .map-job { font-size: 13px; padding: 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 5px; color: #e8ecf8; }
-  .map-job.cur { border-color: #ffe62d; color: #ffe62d; }
-  #map-stats { margin-top: 16px; font-size: 12px; line-height: 1.7; color: #9fb4ff; }
-  #map-legend { margin-top: 14px; font-size: 12px; line-height: 1.8; color: #e8ecf8; }
-  #btn-resume { pointer-events: auto; cursor: pointer; margin-top: 18px; font-family: inherit; font-size: 15px; letter-spacing: 2px; padding: 10px 18px; color: #e8ecf8; background: rgba(45,226,255,0.12); border: 1px solid rgba(45,226,255,0.6); border-radius: 6px; }
+  #topbar { position: absolute; top: 12px; left: 14px; font-size: 20px; text-shadow: 0 0 8px #000, 0 2px 2px #000; }
+  #topbar .line { margin-bottom: 2px; }
+  #wanted { font-size: 24px; letter-spacing: 4px; color: #ffd23e; }
+  #cash { color: #39ff88; font-weight: bold; }
+  #rep { color: #22d3ee; }
+  #clock { color: #9fb4d8; font-size: 15px; }
+  #radio { position: absolute; top: 12px; right: 14px; font-size: 16px; color: #ff9ecf; text-shadow: 0 0 8px #000; }
+  #objective-wrap { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 0 8px #000, 0 2px 2px #000; }
+  #objective { font-size: 19px; color: #ffd23e; font-weight: bold; }
+  #objective-dist { font-size: 15px; color: #9fb4d8; }
+  #dialogue { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: min(620px, 86vw); background: rgba(5, 8, 18, 0.85); border: 1px solid #22d3ee; border-left: 5px solid #22d3ee; padding: 10px 14px; }
+  #dialogue-speaker { color: #22d3ee; font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+  #dialogue-text { font-size: 16px; line-height: 1.4; }
+  #toast { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); background: rgba(5, 8, 18, 0.85); border: 1px solid #ffd23e; color: #ffd23e; padding: 8px 18px; font-size: 17px; font-weight: bold; text-align: center; }
+  #bottombar { position: absolute; bottom: 14px; left: 14px; }
+  #health { width: 220px; height: 12px; background: rgba(255,255,255,0.15); border: 1px solid #556; }
+  #health-fill { height: 100%; width: 100%; background: #39ff88; }
+  #ammo { margin-top: 6px; font-size: 16px; text-shadow: 0 0 8px #000; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 4px #000; }
+  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
+  #minimap { position: absolute; bottom: 14px; right: 14px; width: 180px; height: 180px; border-radius: 50%; border: 2px solid #22d3ee; background: rgba(5, 8, 18, 0.7); }
+  #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 6; box-shadow: inset 0 0 120px 40px rgba(255, 0, 40, 0.55); }
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(5,7,15,0.55) 0%, rgba(5,7,15,0.88) 70%, rgba(5,7,15,0.94) 100%); pointer-events: auto; }
+  .logo { font-size: 64px; font-weight: bold; letter-spacing: 10px; color: #ff2d78; text-shadow: 0 0 18px #ff2d78, 0 0 42px #ff2d78, 0 2px 0 #000; }
+  .logo span { color: #22d3ee; text-shadow: 0 0 18px #22d3ee, 0 0 42px #22d3ee, 0 2px 0 #000; }
+  .tagline { font-size: 18px; color: #9fb4d8; margin: 8px 0 4px; letter-spacing: 2px; }
+  .character { font-size: 16px; color: #ffd27a; margin-bottom: 26px; font-style: italic; }
+  .menu { display: flex; flex-direction: column; gap: 10px; width: 300px; }
+  .menu button, .overlay button { font-family: inherit; font-size: 18px; padding: 11px 16px; background: rgba(34, 211, 238, 0.12); color: #dfe8ff; border: 1px solid #22d3ee; cursor: pointer; letter-spacing: 2px; }
+  .menu button:hover, .overlay button:hover { background: rgba(34, 211, 238, 0.35); }
+  #continue-info { text-align: center; color: #9fb4d8; font-size: 14px; margin: 12px 0; }
+  .panel { background: rgba(5, 8, 18, 0.92); border: 1px solid #22d3ee; padding: 22px 26px; max-width: 92vw; }
+  .panel h2 { color: #22d3ee; letter-spacing: 4px; margin-bottom: 12px; }
+  .panel p, .panel li { font-size: 15px; line-height: 1.6; color: #cfe0ff; }
+  .panel ul { margin-left: 18px; }
+  #mapscreen { flex-direction: row; gap: 18px; align-items: flex-start; justify-content: center; padding: 20px; }
+  #mapcanvas { border: 2px solid #22d3ee; background: #0a0e18; width: min(62vh, 62vw); height: min(62vh, 62vw); }
+  #mapside { width: 320px; max-height: 80vh; overflow: auto; }
+  #mapside h2 { color: #ffd23e; letter-spacing: 3px; margin-bottom: 8px; }
+  .job { padding: 7px 9px; margin-bottom: 6px; border: 1px solid #334; font-size: 14px; }
+  .job.done { border-color: #39ff88; color: #9dffc4; }
+  .job.active { border-color: #ffd23e; color: #ffe9a8; }
+  .job.available { border-color: #22d3ee; color: #b8ecff; }
+  .job.locked { border-color: #334; color: #667; }
+  .job span { float: right; }
+  #mapstats { margin: 10px 0 14px; font-size: 13px; line-height: 1.6; color: #9fb4d8; }
+  #endcard-title { font-size: 56px; letter-spacing: 8px; color: #ff2233; text-shadow: 0 0 22px #ff2233; }
+  #endcard-text { font-size: 17px; color: #cfe0ff; margin: 12px 0 22px; max-width: 480px; text-align: center; line-height: 1.5; }
 </style>
 </head>
 <body>
-<canvas id="game-canvas"></canvas>
-<div id="hud" class="hidden">
-  <div id="hud-topleft" class="panel">
-    <div id="hud-cash">$420</div>
-    <div id="hud-rep">REP 0</div>
-    <div id="hud-clock">Day 1 21:24</div>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="topbar">
+    <div class="line"><span id="wanted">☆☆☆☆☆</span></div>
+    <div class="line"><span id="cash">$320</span> &nbsp;<span id="rep">REP 1</span></div>
+    <div class="line"><span id="clock">Day 1 · 21:40</span></div>
   </div>
-  <div id="hud-topright" class="panel">
-    <div id="hud-stars">☆☆☆☆☆</div>
-    <div id="hud-radio">WAVE 88.1 — TIDE FM</div>
+  <div id="radio">♪ NEON FM</div>
+  <div id="objective-wrap"><div id="objective"></div><div id="objective-dist"></div></div>
+  <div id="dialogue" class="hidden"><div id="dialogue-speaker"></div><div id="dialogue-text"></div></div>
+  <div id="toast" class="hidden"></div>
+  <div id="bottombar">
+    <div id="health"><div id="health-fill"></div></div>
+    <div id="ammo">Pistol — 12 / 12</div>
   </div>
-  <div id="hud-objective" class="panel">LOW WATER — Meet Pip at Pier 9</div>
-  <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas></div>
-  <div id="hud-dialogue" class="panel"></div>
-  <div id="hud-prompt" class="panel"></div>
-  <div id="hud-bottomright" class="panel">
-    <div id="hud-weapon">Pistol</div>
-    <div id="hud-ammo">24 / 24</div>
-    <div id="hud-health"><div id="hud-health-fill"></div></div>
-    <div id="hud-speed"></div>
-  </div>
-  <div id="hud-crosshair"></div>
+  <div id="crosshair" class="hidden"></div>
+  <canvas id="minimap" width="180" height="180"></canvas>
 </div>
-<div id="title-screen">
-  <h1>NEON TIDE</h1>
-  <h2>TIDEWATER</h2>
-  <div id="title-tag">Mara Voss came home after three years away. Six jobs. One city run by Commissioner Hale and the Ebb. Drive it, fight for it, take it back.</div>
-  <div id="title-menu">
+<div id="vignette" class="hidden"></div>
+
+<div id="title" class="overlay">
+  <div class="logo">NEON <span>TIDE</span></div>
+  <div class="tagline">TIDEWATER AFTER DARK — A GETAWAY DRIVER COMES HOME</div>
+  <div class="character">Mara Voss is back in Tidewater after three years away. The Ebb owns the streets. Take them back.</div>
+  <div class="menu">
     <button id="btn-continue">CONTINUE</button>
     <button id="btn-new">NEW GAME</button>
+    <button id="btn-controls">CONTROLS</button>
+    <button id="btn-howto">HOW TO PLAY</button>
   </div>
-  <div id="title-crew">
-    <div class="crew"><b>MARA VOSS</b><span>Getaway driver. Back in Tidewater.</span></div>
-    <div class="crew"><b>ILYA KANE</b><span>Fixer. Gives the jobs.</span></div>
-    <div class="crew"><b>PIP</b><span>Hacker. Eyes on the city.</span></div>
-    <div class="crew"><b>DARIO FLINT</b><span>Rival wheelman. Wants the crown.</span></div>
-    <div class="crew"><b>COMM. HALE</b><span>Owns the police. Owns the Ebb.</span></div>
-  </div>
-  <div id="title-howto">HOW TO PLAY — WASD move / drive · Mouse aim, click shoot · F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M map · V camera · Shift sprint · Space handbrake</div>
+  <div id="continue-info"></div>
 </div>
-<div id="map-screen" class="hidden">
-  <canvas id="map-canvas" width="640" height="640"></canvas>
-  <div id="map-side">
-    <h2>TIDEWATER MAP</h2>
-    <div id="map-jobs"></div>
-    <div id="map-stats"></div>
-    <div id="map-legend">LEGEND<br>◆ Objective &nbsp; ● Place &nbsp; ● Tape<br>● Police &nbsp; ● Enemy &nbsp; ▶ You<br><br>ACTIVITIES<br>Street races · Tide Tapes 0/16 · Safehouse<br>Respray clears heat · Hospital heals</div>
-    <button id="btn-resume">RESUME (M)</button>
+
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h2>PAUSED</h2>
+    <p>WASD move / drive · Mouse aim · Click shoot · Shift sprint · Space handbrake<br>
+    F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M map · V camera</p>
+    <div class="menu" style="margin-top: 16px;">
+      <button id="btn-resume">RESUME</button>
+      <button id="btn-quit">QUIT TO TITLE</button>
+    </div>
   </div>
 </div>
+
+<div id="mapscreen" class="overlay hidden">
+  <canvas id="mapcanvas" width="640" height="640"></canvas>
+  <div id="mapside">
+    <h2>TIDEWATER — CITY MAP</h2>
+    <div id="joblist"></div>
+    <div id="mapstats"></div>
+    <button id="btn-close-map">CLOSE (M)</button>
+  </div>
+</div>
+
+<div id="controls" class="overlay hidden">
+  <div class="panel">
+    <h2>HOW TO PLAY</h2>
+    <ul>
+      <li><b>WASD</b> — walk / drive. <b>Mouse</b> — aim. <b>Click</b> — shoot.</li>
+      <li><b>Shift</b> — sprint. <b>Space</b> — handbrake drift.</li>
+      <li><b>F</b> — get in a car (or steal one). <b>E</b> — interact, pick up, talk.</li>
+      <li><b>Q</b> — change radio station. <b>R</b> — reload. <b>1–4</b> — weapons.</li>
+      <li><b>M</b> — city map and jobs. <b>V</b> — chase / classic camera. <b>Esc</b> — pause.</li>
+      <li>Do jobs for Ilya and Pip to earn cash and REP. Lose the heat or pay a respray to clear it.</li>
+      <li>Collect the 16 Tide Tapes, race at the pink marker, save at the safehouse.</li>
+    </ul>
+    <div class="menu" style="margin-top: 16px;"><button id="btn-close-controls">CLOSE</button></div>
+  </div>
+</div>
+
+<div id="endcard" class="overlay hidden">
+  <div id="endcard-title">WASTED</div>
+  <div id="endcard-text"></div>
+  <div class="menu"><button id="btn-endcard">CONTINUE</button></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

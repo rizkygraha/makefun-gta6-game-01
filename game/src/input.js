@@ -1,70 +1,103 @@
-// Keyboard and mouse state. The game reads this, never the DOM directly,
-// so the autopilot can drive the same inputs during shots.
+// input.js — keyboard + mouse state, with edge-triggered presses and a
+// virtual input the autopilot (shots) and tests drive instead of the keys.
+
+const GAME_KEYS = [
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'Space',
+  'KeyF', 'KeyE', 'KeyQ', 'KeyR', 'KeyM', 'KeyV', 'Digit1', 'Digit2',
+  'Digit3', 'Digit4', 'Escape', 'Enter', 'ArrowUp', 'ArrowDown',
+];
 
 export class Input {
-  constructor() {
+  constructor(target) {
+    this.target = target;
     this.keys = new Set();
-    this._pressed = new Set();
-    this.mouseX = 0;
-    this.mouseY = 0;
-    this.mouseDown = false;
-    this.mouseClicked = false;
-    this.wheel = 0;
+    this.pressedKeys = new Set();
+    this.mouse = { x: 0, y: 0, down: false, clicked: false };
+    this.virtual = new Set();
     this._onKeyDown = (e) => {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-      if (!this.keys.has(e.code)) this._pressed.add(e.code);
+      if (!GAME_KEYS.includes(e.code)) return;
+      if (!e.repeat) this.pressedKeys.add(e.code);
       this.keys.add(e.code);
+      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     };
-    this._onKeyUp = (e) => this.keys.delete(e.code);
+    this._onKeyUp = (e) => {
+      this.keys.delete(e.code);
+    };
     this._onMouseMove = (e) => {
-      this.mouseX = e.clientX;
-      this.mouseY = e.clientY;
+      const r = this.target.getBoundingClientRect();
+      this.mouse.x = e.clientX - r.left;
+      this.mouse.y = e.clientY - r.top;
     };
     this._onMouseDown = (e) => {
-      if (e.button === 0) {
-        this.mouseDown = true;
-        this.mouseClicked = true;
-      }
+      if (e.button !== 0) return;
+      this.mouse.down = true;
+      this.mouse.clicked = true;
     };
     this._onMouseUp = (e) => {
-      if (e.button === 0) this.mouseDown = false;
+      if (e.button !== 0) return;
+      this.mouse.down = false;
     };
     this._onBlur = () => {
       this.keys.clear();
-      this.mouseDown = false;
+      this.mouse.down = false;
     };
   }
 
   attach() {
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
-    window.addEventListener('mousemove', this._onMouseMove);
-    window.addEventListener('mousedown', this._onMouseDown);
-    window.addEventListener('mouseup', this._onMouseUp);
     window.addEventListener('blur', this._onBlur);
+    this.target.addEventListener('mousemove', this._onMouseMove);
+    this.target.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('mouseup', this._onMouseUp);
   }
 
+  detach() {
+    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('blur', this._onBlur);
+    this.target.removeEventListener('mousemove', this._onMouseMove);
+    this.target.removeEventListener('mousedown', this._onMouseDown);
+    window.removeEventListener('mouseup', this._onMouseUp);
+  }
+
+  /** Held down, real or virtual. */
   down(code) {
-    return this.keys.has(code);
+    return this.keys.has(code) || this.virtual.has(code);
   }
 
+  /** Pressed since the last endFrame(), real keys only. */
   pressed(code) {
-    const hit = this._pressed.has(code);
-    if (hit) this._pressed.delete(code);
-    return hit;
+    return this.pressedKeys.has(code);
   }
 
-  consumeClick() {
-    const c = this.mouseClicked;
-    this.mouseClicked = false;
-    return c;
+  /** The mouse was clicked since the last endFrame(). */
+  clicked() {
+    return this.mouse.clicked;
   }
 
-  axis() {
+  /** Drive a key from the autopilot instead of the keyboard. */
+  setVirtual(code, on) {
+    if (on) this.virtual.add(code);
+    else this.virtual.delete(code);
+  }
+
+  clearVirtual() {
+    this.virtual.clear();
+  }
+
+  /** Call once per frame after the game has read the input. */
+  endFrame() {
+    this.pressedKeys.clear();
+    this.mouse.clicked = false;
+  }
+
+  /** WASD drive/walk axes: x = strafe/right, y = forward. */
+  axes() {
     let x = 0;
     let y = 0;
-    if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
-    if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
+    if (this.down('KeyA')) x -= 1;
+    if (this.down('KeyD')) x += 1;
     if (this.down('KeyW') || this.down('ArrowUp')) y += 1;
     if (this.down('KeyS') || this.down('ArrowDown')) y -= 1;
     return { x, y };

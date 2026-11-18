@@ -1,92 +1,168 @@
-// NEON TIDE — tuning, world layout and named data for the whole game.
-// One place for every number the systems share, so a tweak lands everywhere.
+// config.js — NEON TIDE constants: city layout, districts, jobs, weapons,
+// radio stations, police call-signs and driving tuning. Pure data, no code
+// that runs the game; every system reads from here so tuning lives in one place.
 
-export const WORLD = {
-  half: 240,
-  block: 40,
-  roadWidth: 12,
-  sidewalk: 3,
-  maxBuildingsPerBlock: 4,
+export const CFG = {
+  seed: 20261119,
+
+  // The city is a grid of square blocks. Roads run every `roadEvery` units
+  // along x and z; the drivable road surface is `roadWidth` wide.
+  city: {
+    half: 450,
+    roadEvery: 90,
+    roadWidth: 14,
+    block: 76,
+    waterZ: 470, // south edge: the harbor water starts here
+    causewayX: 0, // the bridge leaves the city at this x, heading south
+    causewayEndZ: 640,
+  },
+
+  // Six districts, each a rectangle with its own building heights and neon hue.
+  // Order matters: districtAt() returns the first rectangle containing a point.
+  districts: [
+    { name: 'The Spire', x0: -450, z0: -450, x1: 450, z1: -150, hMin: 55, hMax: 120, hue: 0x7dd3fc, sign: 'SPIRE' },
+    { name: 'Old Cannery', x0: -450, z0: -150, x1: -150, z1: 150, hMin: 9, hMax: 22, hue: 0xffb020, sign: 'CANNERY' },
+    { name: 'Neon Row', x0: -150, z0: -150, x1: 150, z1: 150, hMin: 24, hMax: 58, hue: 0xff2d78, sign: 'NEON ROW' },
+    { name: 'Marina', x0: 150, z0: -150, x1: 450, z1: 150, hMin: 12, hMax: 30, hue: 0x39ff88, sign: 'MARINA' },
+    { name: 'Dockside', x0: -450, z0: 150, x1: 450, z1: 450, hMin: 10, hMax: 26, hue: 0x22d3ee, sign: 'DOCKSIDE' },
+  ],
+
+  // The six story jobs. `stages` are objective steps; each stage has a short
+  // objective line and a target point (or null for timed / combat stages).
+  jobs: [
+    {
+      id: 1, name: 'LOW WATER', payout: 1200, giver: 'Ilya Kane',
+      intro: 'Mara. You are back. Good. A package waits at Pier 9 — bring it to Neon Row, no questions.',
+      stages: [
+        { objective: 'Drive to Pier 9, Dockside', target: [0, 380], kind: 'drive' },
+        { objective: 'Pick up the package', target: [0, 380], kind: 'interact' },
+        { objective: 'Deliver the package to Neon Row', target: [-45, 45], kind: 'drive' },
+        { objective: 'Lose the tail', target: null, kind: 'escape' },
+      ],
+    },
+    {
+      id: 2, name: 'COLD CARGO', payout: 2800, giver: 'Pip',
+      intro: 'There is a car in the Cannery with a cold engine and a warm trunk. Take it. The Ebb will notice.',
+      stages: [
+        { objective: 'Steal the marked car in Old Cannery', target: [-225, -45], kind: 'steal' },
+        { objective: 'Drive the cargo to the Cannery yard', target: [-315, 135], kind: 'drive' },
+        { objective: 'Clear the yard — the Ebb is waiting', target: [-315, 135], kind: 'combat', foes: 3 },
+        { objective: 'Drop the cargo and walk away', target: [-315, 135], kind: 'interact' },
+      ],
+    },
+    {
+      id: 3, name: 'RISING TIDE', payout: 3600, giver: 'Ilya Kane',
+      intro: 'Dario thinks he owns the streets. Beat his time through three checkpoints and the streets are yours.',
+      stages: [
+        { objective: 'Checkpoint 1/3 — Marina gate', target: [225, -225], kind: 'drive', timed: 45 },
+        { objective: 'Checkpoint 2/3 — Cannery bend', target: [-225, 225], kind: 'drive', timed: 45 },
+        { objective: 'Checkpoint 3/3 — Spire approach', target: [45, -315], kind: 'drive', timed: 45 },
+        { objective: 'Lose the heat', target: null, kind: 'escape' },
+      ],
+    },
+    {
+      id: 4, name: 'BLUE LIGHTS', payout: 4500, giver: 'Ilya Kane',
+      intro: 'Hale turned the whole precinct loose on Neon Row. Clear the block, then get out before the helicopter finds you.',
+      stages: [
+        { objective: 'Get to the getaway car', target: [45, -45], kind: 'steal' },
+        { objective: 'Reach the safehouse, Dockside', target: [-135, 225], kind: 'drive' },
+        { objective: 'Clear the block in Neon Row', target: [45, -45], kind: 'combat', foes: 5 },
+      ],
+    },
+    {
+      id: 5, name: 'HARBOR LIGHTS', payout: 6000, giver: 'Pip',
+      intro: 'The Marina terminal logs every container. Stand in the yard, let my hack run, then take the truck south.',
+      stages: [
+        { objective: 'Reach the Marina terminal', target: [315, 45], kind: 'drive' },
+        { objective: 'Hold the yard while the hack runs', target: [315, 45], kind: 'hold', holdSec: 10 },
+        { objective: 'Take the truck to the Causeway', target: [0, 540], kind: 'drive' },
+      ],
+    },
+    {
+      id: 6, name: 'LAST TIDE', payout: 8000, giver: 'Ilya Kane',
+      intro: 'Dario is at the Spire with everything he has. End this, Mara. Then drive until the city is behind you.',
+      stages: [
+        { objective: 'Reach the Spire plaza', target: [135, -315], kind: 'drive' },
+        { objective: 'Face Dario Flint', target: [135, -315], kind: 'boss' },
+        { objective: 'Escape across the Causeway', target: [0, 540], kind: 'drive' },
+      ],
+    },
+  ],
+
+  weapons: [
+    { name: 'Fists', key: '1', damage: 12, rate: 2.0, mag: Infinity, range: 2.4, auto: false },
+    { name: 'Pistol', key: '2', damage: 26, rate: 3.0, mag: 12, range: 60, auto: false },
+    { name: 'SMG', key: '3', damage: 15, rate: 9.0, mag: 30, range: 45, auto: true },
+    { name: 'Carbine', key: '4', damage: 22, rate: 5.0, mag: 24, range: 80, auto: true },
+  ],
+
+  radio: [
+    { name: 'NEON FM', desc: 'synthwave', bpm: 112, wave: 'sawtooth', bass: [55, 55, 65.4, 49], lead: [220, 261.6, 329.6, 392] },
+    { name: 'TIDE 101', desc: 'lo-fi', bpm: 84, wave: 'triangle', bass: [65.4, 58.3, 49, 55], lead: [196, 220, 246.9, 196] },
+    { name: 'STATIC', desc: 'night talk', bpm: 96, wave: 'square', bass: [49, 49, 55, 43.7], lead: [174.6, 220, 174.6, 261.6] },
+  ],
+
+  policeNames: ['Unit 7 — Kestrel', 'Unit 12 — Brine', 'Unit 4 — Gull', 'Unit 21 — Anchor', 'Unit 9 — Tempest', 'Unit 3 — Kite'],
+  heliNames: ['Heli 1 — Nighthawk', 'Heli 2 — Stormcrow'],
+
+  tuning: {
+    walkSpeed: 4.4,
+    sprintSpeed: 7.2,
+    carAccel: 16,
+    carReverse: 10,
+    carBrake: 26,
+    carMaxSpeed: 34,
+    carSteer: 0.55,
+    carGrip: 6.0,
+    handbrakeGrip: 1.1,
+    trafficSpeed: 9,
+    pedSpeed: 1.6,
+    wantedDecay: 0.12, // heat lost per second while unseen and quiet
+    resprayCost: 200,
+    tapeCount: 16,
+    playerHealth: 100,
+    foeHealth: 60,
+    bossHealth: 220,
+  },
+
+  colors: {
+    sky: 0x05070f,
+    fog: 0x0a0f1e,
+    asphalt: 0x0d0f14,
+    sidewalk: 0x171a21,
+    water: 0x06222e,
+    neonPink: 0xff2d78,
+    neonCyan: 0x22d3ee,
+    neonAmber: 0xffb020,
+    neonGreen: 0x39ff88,
+    policeBlue: 0x2244ff,
+    policeRed: 0xff2233,
+  },
+
+  // Collectible "Tide Tapes": glowing cassettes hidden around the city.
+  tapeSpots: [
+    [-405, -405], [-225, -315], [-45, -405], [135, -315], [315, -405], [405, -225],
+    [-405, -135], [-315, 45], [45, -225], [225, -135], [405, -45], [-135, 135],
+    [45, 225], [225, 135], [405, 225], [-315, 315],
+  ],
+
+  // Street race start, safehouse, respray garage and hospital.
+  raceStart: [135, 135],
+  safehouse: [-135, 225],
+  respray: [225, 315],
+  hospital: [-225, -225],
 };
 
-export const DISTRICTS = [
-  { name: 'Neon Row', color: 0xff2d78, accent: '#ff2d78', x0: -40, z0: -80, x1: 80, z1: 40 },
-  { name: 'Dockside', color: 0x2de2ff, accent: '#2de2ff', x0: -240, z0: 80, x1: -40, z1: 240 },
-  { name: 'Old Cannery', color: 0xff9a2d, accent: '#ff9a2d', x0: -240, z0: -240, x1: -40, z1: -80 },
-  { name: 'The Spire', color: 0x8f7bff, accent: '#8f7bff', x0: -40, z0: -240, x1: 80, z1: -80 },
-  { name: 'Marina', color: 0x2dff8f, accent: '#2dff8f', x0: 80, z0: 80, x1: 240, z1: 240 },
-  { name: 'The Causeway', color: 0xffe62d, accent: '#ffe62d', x0: 80, z0: -240, x1: 240, z1: 80 },
-];
-
+/** The district containing point (x, z), or null outside the city. */
 export function districtAt(x, z) {
-  for (const d of DISTRICTS) {
+  for (const d of CFG.districts) {
     if (x >= d.x0 && x < d.x1 && z >= d.z0 && z < d.z1) return d;
   }
-  return DISTRICTS[0];
+  return null;
 }
 
-export const PLAYER = {
-  walkSpeed: 6,
-  runSpeed: 11,
-  turnSpeed: 9,
-  health: 100,
-  carAccel: 16,
-  carBrake: 30,
-  carReverse: 8,
-  carMaxSpeed: 42,
-  carMaxReverse: 12,
-  carTurn: 1.9,
-  carGrip: 6,
-};
-
-export const WEAPONS = [
-  { name: 'Fists', damage: 12, rate: 2.2, range: 2.4, ammo: Infinity, auto: false, spread: 0 },
-  { name: 'Pistol', damage: 34, rate: 3.5, range: 60, ammo: 24, auto: false, spread: 0.012 },
-  { name: 'SMG', damage: 16, rate: 11, range: 55, ammo: 90, auto: true, spread: 0.035 },
-  { name: 'Carbine', damage: 55, rate: 1.6, range: 90, ammo: 18, auto: false, spread: 0.004 },
-];
-
-export const POLICE_UNITS = [
-  'UNIT 07 RIPTIDE',
-  'UNIT 12 HARBOR',
-  'UNIT 03 BREAKWATER',
-  'UNIT 21 UNDERTOW',
-  'UNIT 09 LOWTIDE',
-  'UNIT 18 GULLWING',
-  'UNIT 25 SIREN',
-  'UNIT 31 EDDY',
-];
-
-export const RADIO = [
-  { name: 'WAVE 88.1 — TIDE FM', hue: 0 },
-  { name: 'NEON 104.6 — NIGHT DRIVE', hue: 1 },
-  { name: 'HARBOUR 97.3 — RAIN STATIC', hue: 2 },
-];
-
-export const WANTED = {
-  decayPerSecond: 0.12,
-  steal: 1,
-  hitPed: 2,
-  shoot: 1,
-  kill: 2,
-  maxStars: 5,
-  heliAt: 3,
-  unitsAtStar: [0, 1, 2, 3, 4, 5],
-};
-
-export const ECONOMY = {
-  startCash: 420,
-  tapeTotal: 16,
-};
-
-export const COLORS = {
-  night: 0x070a18,
-  fog: 0x0a0f22,
-  road: 0x11131c,
-  lane: 0x8a8f4d,
-  sidewalk: 0x1c1f2a,
-  water: 0x06283a,
-  rain: 0x9fb4ff,
-  beacon: 0x2de2ff,
-  marker: 0xffe62d,
-};
+/** The nearest road coordinate (avenue or street line) to a value. */
+export function nearestRoad(v) {
+  const { roadEvery } = CFG.city;
+  return Math.round(v / roadEvery) * roadEvery;
+}

@@ -1,221 +1,236 @@
-// Mara Voss: on foot and behind the wheel. On foot she walks, runs and
-// aims; near a parked car, F steals it and she drives. The car is simple
-// arcade physics: accelerate, steer, brake, handbrake drift.
+// player.js — Mara Voss on foot and behind the wheel. On foot she walks
+// and sprints with WASD; F steps into the nearest car (stealing it if it
+// is not hers), and in the car WASD drives with a simple arcade model:
+// acceleration, steering that bites less at speed, and a handbrake that
+// breaks the rear loose. Buildings stop her with a circle push-out.
 
-import * as THREE from '../vendor/three.module.js';
-import { PLAYER, WANTED } from './config.js';
-import { collideCircle, clampWorld } from './world.js';
-import { makeCarMesh } from './traffic.js';
+import * as THREE from 'three';
+import { CFG } from './config.js';
+import { makeCarMesh, collideCircle } from './world.js';
 
-const PARKED_SPOTS = [
-  { x: 44, z: 28, color: 0x2e7d8a },
-  { x: -36, z: -12, color: 0x8a3a3a },
-  { x: 84, z: 60, color: 0xd8d8d8 },
-  { x: -116, z: 148, color: 0x3a5a8a },
-  { x: 124, z: 132, color: 0xc2a13a },
-  { x: 4, z: 108, color: 0x3a8a5a },
-  { x: 44, z: -68, color: 0x5a3a8a },
-  { x: -196, z: -12, color: 0x222226 },
-];
+function figureMesh() {
+  const g = new THREE.Group();
+  const jacket = new THREE.MeshStandardMaterial({ color: 0x0e7490, roughness: 0.8 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc9a186, roughness: 0.9 });
+  const pants = new THREE.MeshStandardMaterial({ color: 0x1c1f26, roughness: 0.9 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.85, 0.36), jacket);
+  body.position.y = 1.05;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), skin);
+  head.position.y = 1.72;
+  // A neon stripe so she reads at night.
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.08, 0.38), new THREE.MeshBasicMaterial({ color: 0x22d3ee }));
+  stripe.position.y = 1.3;
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.24), pants);
+  legL.position.set(-0.16, 0.3, 0);
+  const legR = legL.clone();
+  legR.position.x = 0.16;
+  g.add(body);
+  g.add(head);
+  g.add(stripe);
+  g.add(legL);
+  g.add(legR);
+  g.userData.legs = [legL, legR];
+  return g;
+}
 
 export class Player {
-  constructor(scene, world, rng) {
+  constructor(scene, world, traffic) {
     this.world = world;
-    this.pos = new THREE.Vector3(0, 0, 0);
-    this.heading = Math.PI;
-    this.speed = 0;
+    this.traffic = traffic;
+    this.x = 0;
+    this.z = 0;
+    this.yaw = 0; // facing, radians; forward is (sin yaw, cos yaw)
     this.onFoot = true;
-    this.car = null;
-    this.health = PLAYER.health;
-    this.weapon = 1;
-    this.ammo = [Infinity, 24, 90, 18];
-    this.cash = 420;
-    this.rep = 0;
+    this.health = CFG.tuning.playerHealth;
+    this.cash = 320;
+    this.rep = 1;
     this.walkPhase = 0;
-    this.steer = 0;
-    this.mesh = this._makePerson();
-    scene.add(this.mesh);
-    this.parked = [];
-    for (const s of PARKED_SPOTS) {
-      const mesh = makeCarMesh(s.color);
-      mesh.position.set(s.x, 0, s.z);
-      mesh.rotation.y = rng.range(0, Math.PI * 2);
-      scene.add(mesh);
-      this.parked.push({ x: s.x, z: s.z, heading: mesh.rotation.y, mesh, taken: false });
-    }
+    this.stolen = false; // the current car was taken, not bought
+
+    this.figure = figureMesh();
+    scene.add(this.figure);
+
+    // Mara's own car, parked where she left it: just ahead of her on the
+    // road south of the spawn, so the first thing a new player does is
+    // walk up to it and get in. (It used to sit 45 m away at (45, 0),
+    // which a play test showed F could never reach from the spawn.)
+    this.car = makeCarMesh(0x0e7490, { glow: 0x22d3ee });
+    this.car.position.set(0, 0, 5);
+    scene.add(this.car);
+    this.carHeading = 0;
+    this.carSpeed = 0;
+    this.carVel = { x: 0, z: 0 };
+    this.carParked = true;
+    this.parked = []; // cars she left behind on the street, still enterable
   }
 
-  _makePerson() {
-    const g = new THREE.Group();
-    const jacket = new THREE.MeshStandardMaterial({ color: 0x1f8a8a, roughness: 0.7 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.0, 0.35), jacket);
-    body.position.y = 1.05;
-    g.add(body);
-    const trim = new THREE.Mesh(
-      new THREE.BoxGeometry(0.57, 0.08, 0.37),
-      new THREE.MeshBasicMaterial({ color: 0x2de2ff })
-    );
-    trim.position.y = 1.35;
-    g.add(trim);
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.36, 0.36, 0.36),
-      new THREE.MeshStandardMaterial({ color: 0xd8a080, roughness: 0.8 })
-    );
-    head.position.y = 1.78;
-    g.add(head);
-    const hair = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, 0.22, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0x1a1210, roughness: 0.9 })
-    );
-    hair.position.y = 1.95;
-    g.add(hair);
-    const legMat = new THREE.MeshStandardMaterial({ color: 0x14161f, roughness: 0.8 });
-    this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.22), legMat);
-    this.legL.position.set(-0.14, 0.33, 0);
-    g.add(this.legL);
-    this.legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.22), legMat);
-    this.legR.position.set(0.14, 0.33, 0);
-    g.add(this.legR);
-    return g;
+  get speed() {
+    return this.onFoot ? 0 : Math.hypot(this.carVel.x, this.carVel.z);
   }
 
-  nearestCar(maxDist) {
-    let best = null;
-    let bestD = maxDist;
-    for (const p of this.parked) {
-      if (p.taken) continue;
-      const dx = p.x - this.pos.x;
-      const dz = p.z - this.pos.z;
-      const d = Math.sqrt(dx * dx + dz * dz);
-      if (d < bestD) {
-        bestD = d;
-        best = p;
-      }
-    }
-    return best;
+  /** The point the camera follows, and the heading it looks along. */
+  focus() {
+    if (this.onFoot) return { x: this.x, z: this.z, heading: this.yaw };
+    return { x: this.car.position.x, z: this.car.position.z, heading: this.carHeading };
   }
 
-  enterCar(state) {
-    const p = this.nearestCar(4.5);
-    if (!p) return false;
-    p.taken = true;
-    this.car = p;
-    this.onFoot = false;
-    this.speed = 0;
-    this.heading = p.heading;
-    this.pos.set(p.x, 0, p.z);
-    this.mesh.visible = false;
-    state.wanted = Math.min(WANTED.maxStars, state.wanted + WANTED.steal);
-    state.audio.siren();
-    return true;
-  }
-
-  exitCar() {
-    if (!this.car) return;
-    this.car.taken = false;
-    this.car.x = this.pos.x;
-    this.car.z = this.pos.z;
-    this.car.heading = this.heading;
-    this.car.mesh.position.set(this.pos.x, 0, this.pos.z);
-    this.car.mesh.rotation.y = this.heading;
-    const fx = Math.sin(this.heading);
-    const fz = Math.cos(this.heading);
-    this.pos.set(this.pos.x - fx * 2.5, 0, this.pos.z - fz * 2.5);
-    this.car = null;
-    this.onFoot = true;
-    this.speed = 0;
-    this.mesh.visible = true;
-  }
-
-  update(dt, state) {
-    const input = state.input;
-    const axis = input.axis();
+  update(dt, input) {
+    const t = CFG.tuning;
     if (this.onFoot) {
-      const running = input.down('ShiftLeft') || input.down('ShiftRight');
-      const speed = running ? PLAYER.runSpeed : PLAYER.walkSpeed;
-      const camHeading = state.camHeading;
-      const mx = Math.sin(camHeading);
-      const mz = Math.cos(camHeading);
-      const moveX = mx * axis.y + mz * axis.x;
-      const moveZ = mz * axis.y - mx * axis.x;
-      const len = Math.hypot(moveX, moveZ);
+      const ax = input.axes();
+      const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
+      const speed = sprint ? t.sprintSpeed : t.walkSpeed;
+      // Move camera-relative: W is away from the camera.
+      const fx = Math.sin(this.yaw);
+      const fz = Math.cos(this.yaw);
+      const rx = Math.cos(this.yaw);
+      const rz = -Math.sin(this.yaw);
+      let mx = fx * ax.y + rx * ax.x;
+      let mz = fz * ax.y + rz * ax.x;
+      const len = Math.hypot(mx, mz);
       if (len > 0.01) {
-        const nx = moveX / len;
-        const nz = moveZ / len;
-        const targetHeading = Math.atan2(nx, nz);
-        let diff = targetHeading - this.heading;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        this.heading += diff * Math.min(1, PLAYER.turnSpeed * dt);
-        const step = speed * dt;
-        let nx2 = this.pos.x + nx * step;
-        let nz2 = this.pos.z + nz * step;
-        const fixed = collideCircle(this.world.colliders, nx2, nz2, 0.6);
-        nx2 = fixed.x;
-        nz2 = fixed.z;
-        const clamped = clampWorld(nx2, nz2);
-        this.pos.x = clamped.x;
-        this.pos.z = clamped.z;
-        this.walkPhase += dt * speed * 1.6;
-        const swing = Math.sin(this.walkPhase) * 0.5;
-        this.legL.rotation.x = swing;
-        this.legR.rotation.x = -swing;
-      } else {
-        this.legL.rotation.x *= 0.8;
-        this.legR.rotation.x *= 0.8;
+        mx /= len;
+        mz /= len;
+        this.x += mx * speed * dt;
+        this.z += mz * speed * dt;
+        // Face the way she walks.
+        this.yaw = Math.atan2(mx, mz);
+        this.walkPhase += dt * (sprint ? 11 : 7);
       }
-      this.mesh.position.set(this.pos.x, 0, this.pos.z);
-      this.mesh.rotation.y = this.heading;
+      [this.x, this.z] = collideCircle(this.world, this.x, this.z, 0.6);
+      this.figure.position.set(this.x, 0, this.z);
+      this.figure.rotation.y = this.yaw;
+      const swing = len > 0.01 ? Math.sin(this.walkPhase) * 0.5 : 0;
+      this.figure.userData.legs[0].rotation.x = swing;
+      this.figure.userData.legs[1].rotation.x = -swing;
+      this.figure.visible = true;
     } else {
+      const ax = input.axes();
       const handbrake = input.down('Space');
-      const steerTarget = -axis.x * PLAYER.carTurn;
-      this.steer += (steerTarget - this.steer) * Math.min(1, 8 * dt);
-      if (axis.y > 0) this.speed += PLAYER.carAccel * dt;
-      else if (axis.y < 0) {
-        if (this.speed > 0.5) this.speed -= PLAYER.carBrake * dt;
-        else this.speed -= PLAYER.carReverse * dt;
-      } else {
-        this.speed -= Math.sign(this.speed) * 6 * dt;
-        if (Math.abs(this.speed) < 0.2) this.speed = 0;
+      const fx = Math.sin(this.carHeading);
+      const fz = Math.cos(this.carHeading);
+      // Engine force along the nose.
+      if (ax.y > 0) {
+        this.carVel.x += fx * t.carAccel * dt;
+        this.carVel.z += fz * t.carAccel * dt;
+      } else if (ax.y < 0) {
+        const fwd = this.carVel.x * fx + this.carVel.z * fz;
+        if (fwd > 0.5) {
+          this.carVel.x -= fx * t.carBrake * dt;
+          this.carVel.z -= fz * t.carBrake * dt;
+        } else {
+          this.carVel.x -= fx * t.carReverse * dt;
+          this.carVel.z -= fz * t.carReverse * dt;
+        }
       }
-      if (handbrake) {
-        this.speed -= Math.sign(this.speed) * 18 * dt;
-        this.heading += this.steer * 1.6 * dt * Math.min(1, Math.abs(this.speed) / 8);
+      // Steering: stronger at low speed, reversed when reversing.
+      const fwdSpeed = this.carVel.x * fx + this.carVel.z * fz;
+      const steerAuthority = Math.min(1, Math.abs(fwdSpeed) / 8);
+      const steer = ax.x * t.carSteer * steerAuthority * (fwdSpeed < -0.5 ? -1 : 1);
+      this.carHeading += steer * dt * (handbrake ? 1.6 : 1);
+      // Grip: kill sideways velocity, less of it with the handbrake down.
+      const grip = handbrake ? t.handbrakeGrip : t.carGrip;
+      const nfx = Math.sin(this.carHeading);
+      const nfz = Math.cos(this.carHeading);
+      const fwd = this.carVel.x * nfx + this.carVel.z * nfz;
+      const latX = this.carVel.x - fwd * nfx;
+      const latZ = this.carVel.z - fwd * nfz;
+      const damp = Math.exp(-grip * dt);
+      this.carVel.x = fwd * nfx + latX * damp;
+      this.carVel.z = fwd * nfz + latZ * damp;
+      // Cap speed.
+      const sp = Math.hypot(this.carVel.x, this.carVel.z);
+      if (sp > t.carMaxSpeed) {
+        this.carVel.x *= t.carMaxSpeed / sp;
+        this.carVel.z *= t.carMaxSpeed / sp;
       }
-      this.speed = Math.max(-PLAYER.carMaxReverse, Math.min(PLAYER.carMaxSpeed, this.speed));
-      if (Math.abs(this.speed) > 0.1) {
-        this.heading += this.steer * dt * Math.min(1, Math.abs(this.speed) / 10) * (this.speed >= 0 ? 1 : -1);
+      // Rolling drag.
+      this.carVel.x *= 1 - 0.25 * dt;
+      this.carVel.z *= 1 - 0.25 * dt;
+      let nx = this.car.position.x + this.carVel.x * dt;
+      let nz = this.car.position.z + this.carVel.z * dt;
+      const before = [nx, nz];
+      [nx, nz] = collideCircle(this.world, nx, nz, 2.1);
+      if (nx !== before[0] || nz !== before[1]) {
+        // A wall: scrub speed and bounce a little.
+        this.carVel.x *= -0.25;
+        this.carVel.z *= -0.25;
       }
-      const fx = Math.sin(this.heading);
-      const fz = Math.cos(this.heading);
-      let nx = this.pos.x + fx * this.speed * dt;
-      let nz = this.pos.z + fz * this.speed * dt;
-      const before = { x: nx, z: nz };
-      const fixed = collideCircle(this.world.colliders, nx, nz, 1.6);
-      nx = fixed.x;
-      nz = fixed.z;
-      if (Math.abs(fixed.x - before.x) > 0.01 || Math.abs(fixed.z - before.z) > 0.01) {
-        this.speed *= 0.3;
-      }
-      const clamped = clampWorld(nx, nz);
-      this.pos.x = clamped.x;
-      this.pos.z = clamped.z;
-      if (this.car) {
-        this.car.x = this.pos.x;
-        this.car.z = this.pos.z;
-        this.car.heading = this.heading;
-        this.car.mesh.position.set(this.pos.x, 0, this.pos.z);
-        this.car.mesh.rotation.y = this.heading;
-      }
-      state.audio.setEngine(true, Math.abs(this.speed) / PLAYER.carMaxSpeed);
+      this.car.position.x = nx;
+      this.car.position.z = nz;
+      this.car.rotation.y = this.carHeading;
+      // Spin the wheels with the road speed.
+      const wob = sp * dt * 2.6;
+      for (const w of this.car.userData.wheels) w.rotation.x += wob;
+      this.x = nx;
+      this.z = nz;
+      this.figure.visible = false;
     }
-    if (input.pressed('KeyF')) {
-      if (this.onFoot) this.enterCar(state);
-      else this.exitCar();
+  }
+
+  /** Step into the nearest car: her own, a parked one, or a traffic car. */
+  tryEnterCar() {
+    if (!this.onFoot) return null;
+    // The car she drives, wherever it sits.
+    const dOwn = Math.hypot(this.car.position.x - this.x, this.car.position.z - this.z);
+    if (dOwn < 4) {
+      this.onFoot = false;
+      return { stolen: this.stolen };
     }
-    if (input.pressed('Digit1')) this.weapon = 0;
-    if (input.pressed('Digit2')) this.weapon = 1;
-    if (input.pressed('Digit3')) this.weapon = 2;
-    if (input.pressed('Digit4')) this.weapon = 3;
+    // A car she left parked on the street.
+    for (const m of this.parked) {
+      if (Math.hypot(m.position.x - this.x, m.position.z - this.z) < 4) {
+        this.parked.splice(this.parked.indexOf(m), 1);
+        this.parked.push(this.car);
+        this.car = m;
+        this.carHeading = this.yaw;
+        this.carVel = { x: 0, z: 0 };
+        this.onFoot = false;
+        this.stolen = false;
+        return { stolen: false };
+      }
+    }
+    // Then a traffic car close by: stealing it.
+    const mesh = this.traffic.stealNearest(this.x, this.z, 4);
+    if (mesh) {
+      // The stolen car stays where it is; her old car stays parked behind.
+      this.parked.push(this.car);
+      this.car = mesh;
+      this.carHeading = this.yaw;
+      this.carVel = { x: 0, z: 0 };
+      this.onFoot = false;
+      this.stolen = true;
+      return { stolen: true };
+    }
+    return null;
+  }
+
+  /** Step out of the car, onto the street beside it. */
+  exitCar() {
+    if (this.onFoot) return;
+    this.onFoot = true;
+    this.x = this.car.position.x + Math.cos(this.carHeading) * 2.5;
+    this.z = this.car.position.z - Math.sin(this.carHeading) * 2.5;
+    [this.x, this.z] = collideCircle(this.world, this.x, this.z, 0.6);
+    this.carVel = { x: 0, z: 0 };
+    this.figure.position.set(this.x, 0, this.z);
+    this.figure.visible = true;
+  }
+
+  damage(amount) {
+    this.health = Math.max(0, this.health - amount);
+    return this.health;
+  }
+
+  heal(amount) {
+    this.health = Math.min(CFG.tuning.playerHealth, this.health + amount);
+  }
+
+  addCash(n) {
+    this.cash += n;
+  }
+
+  addRep(n) {
+    this.rep += n;
   }
 }

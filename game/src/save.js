@@ -1,48 +1,48 @@
-// Saves. One localStorage key, one JSON blob: cash, REP, jobs done, tapes,
-// and where Mara was standing. CONTINUE reads it back on the title screen.
+// save.js — localStorage saves: chapter, cash, day, time, REP, the jobs
+// finished, the tapes found and the properties owned. CONTINUE on the
+// title screen reads this back.
 
 const KEY = 'neon-tide-save-v1';
 
+export function loadSave() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (typeof s !== 'object' || s === null) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
 export function saveGame(state) {
   try {
-    const data = {
-      cash: state.cash,
-      rep: state.rep,
-      jobIndex: state.missions.jobIndex,
-      jobsDone: state.missions.jobsDone,
-      tapes: state.missions.tapes,
-      day: state.day,
-      px: state.player.pos.x,
-      pz: state.player.pos.z,
-      savedAt: Date.now(),
-    };
-    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem(KEY, JSON.stringify(state));
     return true;
   } catch {
     return false;
   }
 }
 
-export function loadGame() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (typeof data.cash !== 'number') return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export function hasSave() {
-  return loadGame() !== null;
-}
-
 export function clearSave() {
   try {
     localStorage.removeItem(KEY);
   } catch {
-    // storage unavailable; a new game just starts fresh
+    // Storage may be unavailable; the game still runs.
   }
+}
+
+/** The save shape the title screen shows. */
+export function defaultSave() {
+  return {
+    chapter: 1,
+    cash: 320,
+    day: 1,
+    time: '21:40',
+    rep: 1,
+    jobsDone: [],
+    tapes: 0,
+    properties: 0,
+  };
 }

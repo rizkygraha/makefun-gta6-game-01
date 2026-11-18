@@ -4,46 +4,41 @@
 [![rank](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/rank.svg)](https://make.fun/bounty/gta6-01)
 [![reward](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
-A rain-soaked neon harbor city at night, built for [make.fun's Make GTA 6 bounty](https://make.fun/bounty/gta6-01). Mara Voss, getaway driver, is back in Tidewater after three years away. Six jobs. One city run by Commissioner Hale and the gang called the Ebb. Drive it, fight for it, take it back.
+An open-world crime game in the spirit of GTA 6, built for the [Make GTA 6 bounty](https://make.fun/bounty/gta6-01). Rain-soaked neon harbor city at night — Tidewater. Mara Voss, getaway driver, is back after three years away, and the Ebb owns the streets.
 
-## The city
+## The game
 
-Tidewater has six districts: Neon Row, Dockside, Old Cannery, The Spire, Marina, and the Causeway. Traffic drives the grid, pedestrians walk the sidewalks, and the police answer with named units (PURSUIT, RAMMING, ROADBLOCK) plus a helicopter at three stars. Rain falls, neon hums, and the harbor never sleeps.
+- **A complete open world**: the city of Tidewater — Neon Row, Dockside, Old Cannery, The Spire, Marina, and the Causeway bridge over the harbor.
+- **On foot and by car**: walk, sprint, steal any car with F, drive with arcade handling and a handbrake drift.
+- **Traffic and pedestrians** who drive the grid and run when the city gets loud.
+- **Wanted level 0–5**: named police units (Unit 7 — Kestrel, Unit 12 — Brine…) that pursue, ram, and set roadblocks, plus a helicopter with a searchlight at 3 stars.
+- **Six story jobs** with payouts from $1,200 to $8,000, stages, objectives and dialogue from fixer Ilya Kane and hacker Pip.
+- **Combat**: fists, pistol, SMG and carbine, with reloads, muzzle flash and tracers, against the Ebb and boss Dario Flint.
+- **HUD with a circular minimap**, a full city map screen (M), a radio with three synth stations (Q), and saves in localStorage.
+- **Activities**: street races, 16 Tide Tapes to collect, a safehouse, a respray garage that clears heat, and a hospital.
 
-## Play
-
-- **6 story jobs** with payouts from $1,200 to $8,000, stages, objectives, and dialogue from fixer Ilya Kane, hacker Pip, and rival wheelman Dario Flint.
-- **On foot and driving**: steal any parked car with F, drive, handbrake-drift with Space.
-- **Combat**: fists, pistol, SMG, carbine. Enemies close in and shoot back.
-- **Activities**: street races, 16 Tide Tapes to collect, a safehouse that saves, a respray that clears heat, a hospital that heals.
-- **Systems**: wanted stars 0–5, REP progression, cash, radio with three synth stations, localStorage saves with CONTINUE.
-- **HUD**: cash, REP, clock, wanted stars, radio, objective with distance, dialogue, circular minimap, and a full city map (M).
-
-## Controls
-
-WASD move / drive · Mouse aim, click shoot · F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M map · V camera · Shift sprint · Space handbrake.
-
-## Run it
+## How to run
 
 ```sh
 node serve.ts
+# open http://localhost:8080
 ```
 
-Then open http://localhost:8080 in desktop Chrome. No build step, no network: three.js r160 is vendored under `game/vendor/`.
+No install, no network: three.js r160 is vendored under `game/vendor/`, everything else is the game's own code under `game/src/`.
 
-## Build the entry
+## Controls
+
+WASD move / drive · Mouse aim · Click shoot · Shift sprint · Space handbrake · F enter / steal car · E interact · Q radio · R reload · 1–4 weapons · M map · V camera · Esc pause
+
+## Build
+
+`main.ts` at the repository root copies `game/` and `screenshots/` to `/output` and writes `/output/dossier.json` with `buildDossier` from `vendor/makefun-game.ts`:
 
 ```sh
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-node cli/makefun.mjs check --repo .
+node ../gta6-01-kit/cli/makefun.mjs check --kit ../gta6-01-kit --repo .
 ```
-
-`main.ts` copies `game/` and `screenshots/` into the output directory and writes `dossier.json` with the kit's `buildDossier`.
-
-## Screenshots
-
-Four real renders of the game's own code: `1-chase.jpg` (night rain chase, cover), `2-start.jpg` (title screen), `3-combat.jpg` (on-foot shootout next to a stolen car), `4-map.jpg` (city map). Captured with Playwright at 1024×640 from `?shot=<name>&seed=N`.
 
 ## License
 
-MIT. See LICENSE.
+MIT. See [LICENSE](LICENSE).

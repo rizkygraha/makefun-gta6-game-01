@@ -1,206 +1,268 @@
-// Combat: the player's weapons and the Ebb who shoot back. Hitscan shots
-// from the camera's crosshair, muzzle flash, tracers, and enemies that close
-// in and fire. Dario Flint is the boss of the last job.
+// combat.js — weapons, shooting and the Ebb. Enemies walk at the player
+// and shoot back; the player answers with a raycast through the crosshair.
+// Muzzle flash, tracers and a health bar over every foe.
 
-import * as THREE from '../vendor/three.module.js';
-import { WEAPONS, WANTED } from './config.js';
-import { collideCircle } from './world.js';
-import { makePedMesh } from './traffic.js';
+import * as THREE from 'three';
+import { CFG } from './config.js';
 
-const NAMES = ['Ebb Lookout', 'Ebb Enforcer', 'Ebb Guard', 'Ebb Runner'];
+function foeMesh(rng, boss) {
+  const g = new THREE.Group();
+  const scale = boss ? 1.18 : 1;
+  const coat = new THREE.MeshStandardMaterial({ color: boss ? 0x3b0f0f : 0x5a1f1f, roughness: 0.85 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc9a186, roughness: 0.9 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.9, 0.38), coat);
+  body.position.y = 1.05;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), skin);
+  head.position.y = 1.74;
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.24), new THREE.MeshStandardMaterial({ color: 0x1c1f26, roughness: 0.9 }));
+  legL.position.set(-0.16, 0.3, 0);
+  const legR = legL.clone();
+  legR.position.x = 0.16;
+  // A gun in the hand.
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.5), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+  gun.position.set(0.35, 1.1, 0.3);
+  g.add(body);
+  g.add(head);
+  g.add(legL);
+  g.add(legR);
+  g.add(gun);
+  g.scale.setScalar(scale);
+  g.userData.legs = [legL, legR];
+  g.userData.isEnemy = true;
+  // Health bar: a sprite that always faces the camera.
+  const bar = new THREE.Sprite(new THREE.SpriteMaterial({ color: boss ? 0xff2233 : 0xff5533 }));
+  bar.scale.set(1.1, 0.12, 1);
+  bar.position.y = 2.15;
+  g.add(bar);
+  g.userData.bar = bar;
+  return g;
+}
 
 export class Combat {
-  constructor(scene, rng) {
+  constructor(scene, world, rng) {
     this.scene = scene;
+    this.world = world;
     this.rng = rng;
-    this.enemies = [];
-    this.tracers = [];
+    this.weapons = CFG.weapons;
+    this.weaponIdx = 1; // pistol
+    this.ammo = this.weapons.map((w) => (w.mag === Infinity ? Infinity : w.mag));
     this.cooldown = 0;
-    this.flash = new THREE.PointLight(0xffc860, 0, 18, 1.5);
-    this.scene.add(this.flash);
-    this.flashT = 0;
+    this.reloadT = 0;
+    this.enemies = [];
+    this.boss = null;
+    this.bossDown = false;
     this.raycaster = new THREE.Raycaster();
+    this.flash = new THREE.PointLight(0xffc861, 0, 18, 2);
+    this.scene.add(this.flash);
+    // Tracer line, reused for every shot.
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    this.tracer = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0 }));
+    this.tracer.frustumCulled = false;
+    this.scene.add(this.tracer);
+    this.tracerLife = 0;
   }
 
-  _enemyMesh(isBoss) {
-    const g = makePedMesh(isBoss ? 0x8a1a1a : 0x3a1a1a);
-    const marker = new THREE.Mesh(
-      new THREE.OctahedronGeometry(isBoss ? 0.55 : 0.35),
-      new THREE.MeshBasicMaterial({ color: isBoss ? 0xffe62d : 0xff2d2d })
-    );
-    marker.position.y = 2.3;
-    g.add(marker);
-    g.userData.marker = marker;
-    return g;
+  get weapon() {
+    return this.weapons[this.weaponIdx];
   }
 
-  spawnSquad(x, z, count, boss) {
-    const n = boss ? Math.max(1, count - 1) : count;
+  spawnFoes(n, center) {
     for (let i = 0; i < n; i++) {
-      this._spawnOne(x + this.rng.range(-10, 10), z + this.rng.range(-10, 10), false);
+      const a = this.rng.range(0, Math.PI * 2);
+      const d = this.rng.range(7, 18);
+      const mesh = foeMesh(this.rng, false);
+      const x = center[0] + Math.cos(a) * d;
+      const z = center[1] + Math.sin(a) * d;
+      mesh.position.set(x, 0, z);
+      this.scene.add(mesh);
+      const foe = { mesh, health: CFG.tuning.foeHealth, maxHealth: CFG.tuning.foeHealth, shootT: this.rng.range(0.5, 1.5), walkPhase: this.rng.range(0, 6), dead: false, deadT: 0 };
+      mesh.userData.enemy = foe;
+      this.enemies.push(foe);
     }
-    if (boss) this._spawnOne(x + 4, z - 4, true);
   }
 
-  _spawnOne(x, z, isBoss) {
-    const mesh = this._enemyMesh(isBoss);
-    mesh.position.set(x, 0, z);
+  spawnBoss(center) {
+    const mesh = foeMesh(this.rng, true);
+    mesh.position.set(center[0] + 6, 0, center[1] - 4);
     this.scene.add(mesh);
-    this.enemies.push({
-      x,
-      z,
-      health: isBoss ? 220 : 70,
-      maxHealth: isBoss ? 220 : 70,
-      mesh,
-      name: isBoss ? 'Dario Flint' : NAMES[this.rng.int(0, NAMES.length - 1)],
-      isBoss,
-      speed: this.rng.range(2.5, 3.6),
-      shootTimer: this.rng.range(0.8, 2),
-      phase: this.rng.range(0, 6),
-    });
+    this.boss = { mesh, health: CFG.tuning.bossHealth, maxHealth: CFG.tuning.bossHealth, shootT: 1, walkPhase: 0, dead: false, name: 'Dario Flint' };
+    mesh.userData.enemy = this.boss;
+    this.bossDown = false;
   }
 
-  _tracer(from, to) {
-    const dir = new THREE.Vector3().subVectors(to, from);
-    const len = dir.length();
-    const geo = new THREE.BoxGeometry(0.06, 0.06, len);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.9 });
-    const m = new THREE.Mesh(geo, mat);
-    m.position.copy(from).addScaledVector(dir, 0.5);
-    m.lookAt(to);
-    this.scene.add(m);
-    this.tracers.push({ mesh: m, life: 0.12 });
+  foesAlive() {
+    return this.enemies.filter((e) => !e.dead).length;
   }
 
-  _shoot(state) {
-    const p = state.player;
-    const w = WEAPONS[p.weapon];
-    if (w.ammo !== Infinity) {
-      if (p.ammo[p.weapon] <= 0) return;
-      p.ammo[p.weapon] -= 1;
+  switchWeapon(idx) {
+    if (idx < 0 || idx >= this.weapons.length) return;
+    this.weaponIdx = idx;
+    this.reloadT = 0;
+  }
+
+  startReload() {
+    const w = this.weapon;
+    if (w.mag === Infinity || this.reloadT > 0) return;
+    if (this.ammo[this.weaponIdx] === w.mag) return;
+    this.reloadT = 0.9;
+  }
+
+  /** Fire one shot from the camera through the mouse position. */
+  fire(camera, mouse, canvas, player) {
+    const w = this.weapon;
+    if (this.cooldown > 0 || this.reloadT > 0) return null;
+    if (this.ammo[this.weaponIdx] <= 0) {
+      this.startReload();
+      return null;
     }
+    if (w.mag !== Infinity) this.ammo[this.weaponIdx] -= 1;
     this.cooldown = 1 / w.rate;
-    const cam = state.render.camera;
-    const from = new THREE.Vector3();
-    cam.getWorldPosition(from);
-    const dir = new THREE.Vector3();
-    cam.getWorldDirection(dir);
-    if (w.spread > 0) {
-      dir.x += (Math.random() - 0.5) * w.spread * 2;
-      dir.y += (Math.random() - 0.5) * w.spread * 2;
-      dir.normalize();
-    }
-    this.flash.position.copy(from).addScaledVector(dir, 2);
-    this.flash.intensity = 60;
-    this.flashT = 0.06;
-    state.audio.shoot();
-    this.raycaster.set(from, dir);
+    const ndcX = (mouse.x / canvas.clientWidth) * 2 - 1;
+    const ndcY = -(mouse.y / canvas.clientHeight) * 2 + 1;
+    this.raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
     this.raycaster.far = w.range;
-    const meshes = this.enemies.map((e) => e.mesh);
-    const hits = this.raycaster.intersectObjects(meshes, true);
+    const targets = [];
+    for (const e of this.enemies) if (!e.dead) targets.push(e.mesh);
+    if (this.boss && !this.boss.dead) targets.push(this.boss.mesh);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    // Muzzle flash at the camera, tracer to the hit (or the far point).
+    const from = camera.position.clone();
+    from.y -= 0.4;
+    let to = this.raycaster.ray.at(w.range, new THREE.Vector3());
+    let hitEnemy = null;
     if (hits.length > 0) {
-      let obj = hits[0].object;
-      while (obj.parent && !this.enemies.some((e) => e.mesh === obj)) obj = obj.parent;
-      const enemy = this.enemies.find((e) => e.mesh === obj);
-      if (enemy) {
-        enemy.health -= w.damage;
-        state.audio.hit();
-        this._tracer(from, hits[0].point);
-        if (enemy.health <= 0) this._kill(enemy, state);
-      }
-    } else {
-      const end = from.clone().addScaledVector(dir, w.range);
-      this._tracer(from, end);
+      to = hits[0].point.clone();
+      let o = hits[0].object;
+      while (o && !o.userData.isEnemy) o = o.parent;
+      hitEnemy = o ? o.userData.enemy : null;
     }
+    this.flash.position.copy(from);
+    this.flash.intensity = 60;
+    const pos = this.tracer.geometry.attributes.position;
+    pos.setXYZ(0, from.x, from.y, from.z);
+    pos.setXYZ(1, to.x, to.y, to.z);
+    pos.needsUpdate = true;
+    this.tracer.material.opacity = 0.9;
+    this.tracerLife = 0.07;
+    if (hitEnemy) {
+      hitEnemy.health -= w.damage;
+      hitEnemy.mesh.userData.bar.scale.x = Math.max(0.01, 1.1 * (hitEnemy.health / hitEnemy.maxHealth));
+      if (hitEnemy.health <= 0) this._kill(hitEnemy, player);
+      return { hit: true, point: to };
+    }
+    return { hit: false, point: to };
   }
 
-  _melee(state) {
-    const p = state.player;
-    this.cooldown = 1 / WEAPONS[0].rate;
-    const fx = Math.sin(p.heading);
-    const fz = Math.cos(p.heading);
-    for (const e of [...this.enemies]) {
-      const dx = e.x - p.pos.x;
-      const dz = e.z - p.pos.z;
+  /** Fists: a short swing at whatever is right in front. */
+  melee(player) {
+    if (this.cooldown > 0) return;
+    this.cooldown = 1 / this.weapon.rate;
+    const fx = Math.sin(player.yaw);
+    const fz = Math.cos(player.yaw);
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      const dx = e.mesh.position.x - player.x;
+      const dz = e.mesh.position.z - player.z;
       const d = Math.hypot(dx, dz);
-      if (d < WEAPONS[0].range && (dx * fx + dz * fz) / d > 0.5) {
-        e.health -= WEAPONS[0].damage;
-        state.audio.hit();
-        if (e.health <= 0) this._kill(e, state);
+      if (d < 2.6 && (dx * fx + dz * fz) / d > 0.5) {
+        e.health -= this.weapon.damage;
+        e.mesh.userData.bar.scale.x = Math.max(0.01, 1.1 * (e.health / e.maxHealth));
+        if (e.health <= 0) this._kill(e, player);
+        return;
+      }
+    }
+    if (this.boss && !this.boss.dead) {
+      const dx = this.boss.mesh.position.x - player.x;
+      const dz = this.boss.mesh.position.z - player.z;
+      if (Math.hypot(dx, dz) < 2.8) {
+        this.boss.health -= this.weapon.damage;
+        if (this.boss.health <= 0) this._kill(this.boss, player);
       }
     }
   }
 
-  _kill(enemy, state) {
-    const i = this.enemies.indexOf(enemy);
-    if (i >= 0) this.enemies.splice(i, 1);
-    this.scene.remove(enemy.mesh);
-    state.player.cash += 25;
-    state.wanted = Math.min(WANTED.maxStars, state.wanted + (enemy.isBoss ? 0 : 1));
-    if (enemy.isBoss) state.missions.say('Dario Flint is down. The Ebb is finished.', null);
+  _kill(e, player) {
+    e.dead = true;
+    e.deadT = 0;
+    e.mesh.rotation.x = -Math.PI / 2;
+    e.mesh.position.y = 0.3;
+    e.mesh.userData.bar.visible = false;
+    if (e === this.boss) {
+      this.bossDown = true;
+      if (player) player.addCash(500);
+    } else if (player) {
+      player.addCash(this.rng.int(40, 120));
+    }
   }
 
-  update(dt, state) {
-    const p = state.player;
-    const input = state.input;
-    if (this.cooldown > 0) this.cooldown -= dt;
-    if (this.flashT > 0) {
-      this.flashT -= dt;
-      if (this.flashT <= 0) this.flash.intensity = 0;
-    }
-    for (const t of [...this.tracers]) {
-      t.life -= dt;
-      t.mesh.material.opacity = Math.max(0, t.life / 0.12) * 0.9;
-      if (t.life <= 0) {
-        this.scene.remove(t.mesh);
-        this.tracers.splice(this.tracers.indexOf(t), 1);
+  update(dt, ctx) {
+    const { player, input, camera, canvas } = ctx;
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.reloadT > 0) {
+      this.reloadT -= dt;
+      if (this.reloadT <= 0) {
+        this.ammo[this.weaponIdx] = this.weapon.mag;
       }
     }
-    if (state.screen === 'play' && p.onFoot) {
-      const w = WEAPONS[p.weapon];
-      const wantFire = w.auto ? input.mouseDown : input.consumeClick();
-      if (wantFire && this.cooldown <= 0) {
-        if (p.weapon === 0) this._melee(state);
-        else this._shoot(state);
+    if (this.flash.intensity > 0) this.flash.intensity = Math.max(0, this.flash.intensity - dt * 500);
+    if (this.tracerLife > 0) {
+      this.tracerLife -= dt;
+      if (this.tracerLife <= 0) this.tracer.material.opacity = 0;
+    }
+
+    // Weapon keys and reload, on foot only.
+    if (player.onFoot) {
+      for (let i = 0; i < 4; i++) {
+        if (input.pressed(`Digit${i + 1}`)) this.switchWeapon(i);
+      }
+      if (input.pressed('KeyR')) this.startReload();
+      const w = this.weapon;
+      const wantFire = w.auto ? input.mouse.down : input.clicked();
+      if (wantFire) {
+        if (w.name === 'Fists') this.melee(player);
+        else this.fire(camera, input.mouse, canvas, player);
       }
     }
-    for (const e of [...this.enemies]) {
-      const dx = p.pos.x - e.x;
-      const dz = p.pos.z - e.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 1.2) {
-        const step = Math.min(dist - 1.2, e.speed * dt);
-        let nx = e.x + (dx / dist) * step;
-        let nz = e.z + (dz / dist) * step;
-        const fixed = collideCircle(state.world.colliders, nx, nz, 0.5);
-        e.x = fixed.x;
-        e.z = fixed.z;
-      }
-      e.phase += dt * 4;
-      e.mesh.position.set(e.x, Math.abs(Math.sin(e.phase)) * 0.05, e.z);
-      e.mesh.rotation.y = Math.atan2(dx, dz);
-      e.mesh.userData.marker.rotation.y += dt * 3;
-      e.mesh.userData.marker.position.y = 2.3 + Math.sin(state.time * 3) * 0.12;
-      e.shootTimer -= dt;
-      if (e.shootTimer <= 0 && dist < 42 && p.onFoot) {
-        e.shootTimer = this.rng.range(1.4, 2.6);
-        const from = new THREE.Vector3(e.x, 1.5, e.z);
-        const to = new THREE.Vector3(p.pos.x, 1.2, p.pos.z);
-        this._tracer(from, to);
-        if (this.rng.chance(0.45)) {
-          p.health = Math.max(0, p.health - (e.isBoss ? 12 : 7));
-          state.audio.hit();
+
+    // Enemies walk at the player and shoot back.
+    const all = [...this.enemies];
+    if (this.boss) all.push(this.boss);
+    for (const e of all) {
+      if (e.dead) {
+        e.deadT += dt;
+        if (e.deadT > 3) {
+          this.scene.remove(e.mesh);
+          if (e !== this.boss) this.enemies.splice(this.enemies.indexOf(e), 1);
         }
+        continue;
       }
-    }
-    if (p.health <= 0) {
-      p.health = 100;
-      p.cash = Math.max(0, p.cash - 200);
-      state.wanted = 0;
-      if (p.car) p.exitCar();
-      p.pos.set(140, 0, 140);
-      p.heading = Math.PI;
-      state.missions.say('You woke up at the Hospital. $200 gone. Hale is still out there.', null);
+      const dx = player.x - e.mesh.position.x;
+      const dz = player.z - e.mesh.position.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      const speed = e === this.boss ? 3.4 : 2.6;
+      if (dist > 9) {
+        e.mesh.position.x += (dx / dist) * speed * dt;
+        e.mesh.position.z += (dz / dist) * speed * dt;
+        e.walkPhase += dt * 7;
+        const swing = Math.sin(e.walkPhase) * 0.4;
+        e.mesh.userData.legs[0].rotation.x = swing;
+        e.mesh.userData.legs[1].rotation.x = -swing;
+      }
+      e.mesh.rotation.y = Math.atan2(dx, dz);
+      e.shootT -= dt;
+      if (e.shootT <= 0 && dist < 42) {
+        e.shootT = e === this.boss ? 0.9 : 1.6;
+        // A shot back: a hit is a coin toss weighted by distance.
+        const hitChance = Math.max(0.12, 0.55 - dist * 0.01);
+        if (this.rng.chance(hitChance)) {
+          const dmg = e === this.boss ? 12 : 7;
+          if (ctx.onPlayerHit) ctx.onPlayerHit(dmg);
+        }
+        // Their muzzle flash.
+        this.flash.position.set(e.mesh.position.x, 1.4, e.mesh.position.z);
+        this.flash.intensity = 30;
+      }
     }
   }
 }
