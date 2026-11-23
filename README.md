@@ -2,6 +2,8 @@
 [![rank](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/rizkygraha/makefun-gta6-game-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
+_Round 5 (23 Nov 2026): rebuilt from scratch under a sealed recording; main.ts now clears only the contents of /output, never the folder itself._
+
 # NEON TIDE — Make GTA 6 (gta6-01)
 
 An open-world night-drive-and-shootout game set in **Tidewater**, a rain-soaked
