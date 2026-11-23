@@ -1,53 +1,38 @@
-// NEON TIDE — save.js
-// localStorage saves: cash, REP, job progress, Tide Tapes, day and time.
-// One key, one JSON object, guarded so a broken or missing save never
-// stops the game.
-
-const KEY = 'neon-tide-save-v1';
-
-export function defaultSave() {
-  return {
-    cash: 420,
-    rep: 0,
-    jobIndex: 0,
-    tapes: 0,
-    tapesFound: [],
-    day: 1,
-    timeMinutes: 22 * 60 + 15,
-    chapter: 1,
-  };
-}
+// Save games in localStorage (this browser only). A save keeps the story
+// position, cash, REP, tapes and health — enough for CONTINUE to mean something.
+import { SAVE_KEY } from './config.js';
 
 export function loadSave() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object') return null;
-    return Object.assign(defaultSave(), data);
-  } catch (e) {
+    if (!data || typeof data.jobIndex !== 'number') return null;
+    return data;
+  } catch {
     return null;
   }
 }
 
-export function writeSave(data) {
+export function saveGame(G) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    const data = {
+      jobIndex: G.mission.jobIndex,
+      cash: G.cash,
+      rep: G.rep,
+      tapes: G.tapes,
+      health: Math.round(G.player.health),
+      day: G.day,
+      clock: G.clock,
+      savedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
-}
-
-// Human-readable clock line for the title screen's CONTINUE card.
-export function clockLine(day, timeMinutes) {
-  const h = Math.floor(timeMinutes / 60) % 24;
-  const m = Math.floor(timeMinutes % 60);
-  const hh = String(h).padStart(2, '0');
-  const mm = String(m).padStart(2, '0');
-  return 'Day ' + day + '  ' + hh + ':' + mm;
+  try { window.localStorage.removeItem(SAVE_KEY); } catch { /* storage off */ }
 }

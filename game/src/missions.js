@@ -1,218 +1,131 @@
-// NEON TIDE — missions.js
-// Six jobs for Mara's crew, each in three stages: go somewhere, fight someone,
-// or get away. A beacon marks the current objective, the HUD shows the job
-// and the distance, and finishing a job pays cash and REP and unlocks the
-// next one.
+// The six jobs: stages, objectives, dialogue and payouts. A job is three
+// stages — reach, talk, fight, escape or deliver — and finishing one pays
+// cash, adds REP and saves the game.
+import { JOBS, REP_PER_JOB, TAPES_TOTAL, WANTED } from './config.js';
+import { ACTION_INTERACT } from './input.js';
+import { saveGame } from './save.js';
+import { spawnEnemies } from './combat.js';
 
-import * as THREE from '../vendor/three.module.min.js';
-import { CFG } from './config.js';
+export function initMissions(G) {
+  G.mission = {
+    jobIndex: 0,
+    stageIndex: 0,
+    objective: null,
+    kills: 0,
+    dialogue: null,
+    dialogueT: 0,
+    storyDone: false,
+    stageStarted: false,
+  };
+  setObjective(G);
+}
 
-const JOBS = [
-  {
-    name: 'LOW WATER', payout: 1200, giver: 'Ilya Kane',
-    intro: [
-      ['Ilya Kane', 'Mara. Three years gone and Tidewater still owes you.'],
-      ['Ilya Kane', 'Small job first. Meet me at the Dockside crane.'],
-    ],
-    stages: [
-      { kind: 'goto', spot: 'docksideMeet', text: 'Meet Ilya at the Dockside crane' },
-      { kind: 'drive', spot: 'neonDrop', text: 'Drive the package to Neon Row' },
-      { kind: 'escape', spot: 'safehouse', text: 'Lose the tail — reach the safehouse', heat: 2 },
-    ],
-  },
-  {
-    name: 'COLD CARGO', payout: 2800, giver: 'Ilya Kane',
-    intro: [
-      ['Ilya Kane', 'The Ebb are moving cargo through the Cannery. Take it.'],
-      ['Ilya Kane', 'Their lookouts will not wave you through.'],
-    ],
-    stages: [
-      { kind: 'goto', spot: 'canneryGate', text: 'Reach the Cannery gate' },
-      { kind: 'fight', spot: 'ebbBlock', text: 'Clear the Ebb lookouts', foes: 3 },
-      { kind: 'drive', spot: 'neonDrop', text: 'Deliver the cargo to Neon Row' },
-    ],
-  },
-  {
-    name: 'RISING TIDE', payout: 3600, giver: 'Pip',
-    intro: [
-      ['Pip', 'I built you a little present. It is on the Marina pier.'],
-      ['Pip', 'Plant it on The Spire and Hale’s cameras go dark for an hour.'],
-    ],
-    stages: [
-      { kind: 'pickup', spot: 'marinaPier', text: 'Pick up Pip’s device at the Marina pier (E)' },
-      { kind: 'goto', spot: 'spireRoof', text: 'Plant the device at The Spire' },
-      { kind: 'escape', spot: 'safehouse', text: 'Escape — reach the safehouse', heat: 2 },
-    ],
-  },
-  {
-    name: 'BLUE LIGHTS', payout: 4500, giver: 'Ilya Kane',
-    intro: [
-      ['Ilya Kane', 'The Ebb own a whole block in Neon Row tonight.'],
-      ['Ilya Kane', 'Take it back. Loud is fine.'],
-    ],
-    stages: [
-      { kind: 'fight', spot: 'ebbBlock', text: 'Clear the block in Neon Row', foes: 5 },
-      { kind: 'goto', spot: 'hospital', text: 'Drop the wounded crew at the hospital' },
-      { kind: 'escape', spot: 'safehouse', text: 'Get to the safehouse', heat: 2 },
-    ],
-  },
-  {
-    name: 'HARBOR LIGHTS', payout: 6000, giver: 'Dario Flint',
-    intro: [
-      ['Dario Flint', 'You still drive, Voss? Prove it. Three checkpoints.'],
-      ['Dario Flint', 'Beat my time and the harbour is yours. Lose and walk.'],
-    ],
-    stages: [
-      { kind: 'drive', spot: 'raceStart', text: 'Reach the race start' },
-      { kind: 'drive', spot: 'marinaPier', text: 'Checkpoint 1 — Marina' },
-      { kind: 'drive', spot: 'causewayEnd', text: 'Checkpoint 2 — The Causeway' },
-    ],
-  },
-  {
-    name: 'LAST TIDE', payout: 8000, giver: 'Ilya Kane',
-    intro: [
-      ['Ilya Kane', 'Dario sold us to Hale. He is at Dockside with his crew.'],
-      ['Ilya Kane', 'End it tonight, Mara. Then we leave Tidewater rich.'],
-    ],
-    stages: [
-      { kind: 'fight', spot: 'docksideMeet', text: 'Take down Dario Flint at Dockside', foes: 6, boss: true },
-      { kind: 'drive', spot: 'causewayEnd', text: 'Drive to The Causeway for the handoff' },
-      { kind: 'escape', spot: 'safehouse', text: 'Disappear — reach the safehouse', heat: 3 },
-    ],
-  },
-];
+export function currentJob(G) {
+  return JOBS[G.mission.jobIndex] || null;
+}
 
-export class Missions {
-  constructor(game) {
-    this.g = game;
-    this.jobs = JOBS;
-    this.jobIndex = game.saveData ? game.saveData.jobIndex : 0;
-    this.stageIndex = 0;
-    this.dialogue = [];
-    this.dialogueT = 0;
-    this.currentLine = null;
-    this.foesDown = 0;
-    // Objective beacon: a light pillar and a floating diamond.
-    this.beacon = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.4, 1.4, 70, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
-    );
-    this.beacon.position.y = 35;
-    game.scene.add(this.beacon);
-    this.diamond = new THREE.Mesh(
-      new THREE.OctahedronGeometry(1.2),
-      new THREE.MeshBasicMaterial({ color: 0xffe14d })
-    );
-    game.scene.add(this.diamond);
-    this._startJob(this.jobIndex, false);
+export function currentStage(G) {
+  const job = currentJob(G);
+  if (!job) return null;
+  return job.stages[G.mission.stageIndex] || null;
+}
+
+export function refreshObjective(G) {
+  setObjective(G);
+}
+
+function setObjective(G) {
+  const stage = currentStage(G);
+  const m = G.mission;
+  m.stageStarted = false;
+  if (!stage) { m.objective = null; return; }
+  m.objective = { x: stage.x, z: stage.z, label: stage.label };
+  if (stage.dialog) {
+    m.dialogue = stage.dialog;
+    m.dialogueT = 6;
   }
+}
 
-  get currentJob() { return this.jobs[this.jobIndex] || null; }
-  get currentStage() {
-    const j = this.currentJob;
-    return j ? j.stages[this.stageIndex] : null;
+function startStage(G) {
+  const stage = currentStage(G);
+  const m = G.mission;
+  m.stageStarted = true;
+  if (!stage) return;
+  if (stage.kind === 'fight') {
+    m.kills = 0;
+    spawnEnemies(G, stage.x, stage.z, stage.count, { boss: !!stage.boss });
   }
-  get done() { return this.jobIndex >= this.jobs.length; }
+  if (stage.kind === 'escape') {
+    // The stage needs heat to mean anything: Hale's units are already coming.
+    if (G.heat < WANTED.heatPerStar) {
+      G.heat = WANTED.heatPerStar + 4;
+      G.lastCrime = G.time;
+      G.wanted = 1;
+    }
+  }
+}
 
-  _startJob(i, announce) {
-    const job = this.jobs[i];
-    if (!job) {
-      this.beacon.visible = false;
-      this.diamond.visible = false;
-      this.g.hud.setObjective('ALL JOBS DONE', 'Tidewater is yours — free roam, collect the tapes');
+function advanceStage(G) {
+  const m = G.mission;
+  const job = currentJob(G);
+  m.stageIndex += 1;
+  if (m.stageIndex >= job.stages.length) {
+    // Job complete: pay out, add REP, save, move on.
+    G.cash += job.payout;
+    G.rep += REP_PER_JOB[job.id - 1] || 60;
+    G.addMessage(`Job complete: ${job.name} — $${job.payout.toLocaleString()} paid.`);
+    G.audio.sfx('payout');
+    saveGame(G);
+    m.jobIndex += 1;
+    m.stageIndex = 0;
+    if (m.jobIndex >= JOBS.length) {
+      m.storyDone = true;
+      m.objective = null;
+      m.dialogue = { who: 'Ilya Kane', text: 'That is all six jobs, Mara. Tidewater is yours. Free roam — the city is open.' };
+      m.dialogueT = 8;
       return;
     }
-    this.stageIndex = 0;
-    this.foesDown = 0;
-    this.dialogue = job.intro.slice();
-    this.dialogueT = 0;
-    this.currentLine = null;
-    if (announce) {
-      this.g.banner('JOB ' + (i + 1) + ' — ' + job.name, job.giver + '  •  $' + job.payout.toLocaleString());
-      this.g.audio.sfx('job');
-    }
-    this._startStage();
+    const next = currentJob(G);
+    G.addMessage(`New job: ${next.name} — $${next.payout.toLocaleString()}. ${next.brief}`);
   }
+  setObjective(G);
+}
 
-  _startStage() {
-    const s = this.currentStage;
-    if (!s) return;
-    const pos = this.g.world.spots[s.spot];
-    this.beacon.position.set(pos.x, 35, pos.z);
-    this.diamond.position.set(pos.x, 7, pos.z);
-    this.beacon.visible = true;
-    this.diamond.visible = true;
-    if (s.kind === 'fight') {
-      this.foesDown = 0;
-      this.g.combat.spawnFoes(pos, s.foes, !!s.boss);
-    }
-    if (s.heat) {
-      this.g.police.wanted = Math.max(this.g.police.wanted, s.heat);
-      this.g.police.heat = 0;
-      this.g.police.lastCrimeAt = this.g.time;
-    }
-    this.g.hud.setObjective(this.currentJob.name + ' — ' + s.text, '');
+export function updateMissions(G, actions, dt) {
+  const m = G.mission;
+  if (m.storyDone) return;
+  if (!m.stageStarted) startStage(G);
+  if (m.dialogueT > 0) {
+    m.dialogueT -= dt;
+    if (m.dialogueT <= 0) m.dialogue = null;
   }
-
-  // Teleport the mission state for a shot (jobs 1-2 done, job 3 active).
-  setForShot(jobIndex, stageIndex) {
-    this.jobIndex = jobIndex;
-    this._startJob(jobIndex, false);
-    this.stageIndex = stageIndex;
-    this._startStage();
-    this.dialogue = [];
-    this.currentLine = null;
-  }
-
-  update(dt) {
-    const g = this.g;
-    // Dialogue lines, one at a time.
-    this.dialogueT += dt;
-    if (this.dialogue.length > 0 && this.dialogueT > 4.5) {
-      this.dialogueT = 0;
-      this.currentLine = this.dialogue.shift();
-      g.hud.showDialogue(this.currentLine[0], this.currentLine[1]);
-    }
-    if (this.done) return;
-    const s = this.currentStage;
-    if (!s) return;
-    const pos = g.world.spots[s.spot];
-    const dist = Math.hypot(g.player.pos.x - pos.x, g.player.pos.z - pos.z);
-    g.hud.setObjective(this.currentJob.name + ' — ' + s.text, Math.round(dist) + ' m');
-    // Beacon pulse.
-    this.diamond.rotation.y += dt * 1.6;
-    this.diamond.position.y = 7 + Math.sin(g.time * 2.2) * 0.5;
-    this.beacon.material.opacity = 0.12 + Math.sin(g.time * 2.2) * 0.05;
-    // Stage completion.
-    if (s.kind === 'goto' || s.kind === 'drive' || s.kind === 'escape') {
-      if (dist < 9) this._completeStage();
-    } else if (s.kind === 'pickup') {
-      if (dist < 9 && g.controls.interact) this._completeStage();
-    } else if (s.kind === 'fight') {
-      if (this.foesDown >= s.foes) this._completeStage();
+  const stage = currentStage(G);
+  if (!stage) return;
+  const P = G.player;
+  const dx = stage.x - P.x;
+  const dz = stage.z - P.z;
+  const dist = Math.hypot(dx, dz);
+  if (stage.kind === 'goto' || stage.kind === 'deliver') {
+    if (dist < 8) advanceStage(G);
+  } else if (stage.kind === 'talk') {
+    if (dist < 7 && (actions & ACTION_INTERACT)) advanceStage(G);
+  } else if (stage.kind === 'fight') {
+    if (m.kills >= stage.count) advanceStage(G);
+  } else if (stage.kind === 'escape') {
+    if (dist < 8) {
+      if (G.wanted >= 1) advanceStage(G);
+      else G.addMessage('You need heat for this run — steal a car or fire a shot first.');
     }
   }
-
-  _completeStage() {
-    const g = this.g;
-    g.audio.sfx('stage');
-    this.stageIndex++;
-    if (this.stageIndex >= this.currentJob.stages.length) {
-      this._completeJob();
-    } else {
-      this._startStage();
+  // Tide Tape collectibles.
+  for (const tape of G.world.tapes) {
+    if (tape.found) continue;
+    if (Math.hypot(tape.x - P.x, tape.z - P.z) < 2.2) {
+      tape.found = true;
+      G.tapes += 1;
+      G.cash += 50;
+      G.audio.sfx('pickup');
+      G.addMessage(`Tide Tape ${G.tapes}/${TAPES_TOTAL} — +$50.`);
     }
-  }
-
-  _completeJob() {
-    const g = this.g;
-    const job = this.currentJob;
-    g.cash += job.payout;
-    g.rep += 25;
-    g.banner('JOB COMPLETE — ' + job.name, '$' + job.payout.toLocaleString() + '  •  REP +25');
-    g.audio.sfx('complete');
-    g.saveProgress();
-    this.jobIndex++;
-    this._startJob(this.jobIndex, true);
   }
 }

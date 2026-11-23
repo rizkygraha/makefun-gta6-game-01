@@ -1,51 +1,50 @@
-// NEON TIDE — main.ts
-// The entry's program: copies game/ and screenshots/ from this repository
-// into the output directory and writes dossier.json with buildDossier from
-// vendor/makefun-game.ts. Runs on Node 22, standard library only. Outside
-// the grader, MAKEFUN_OUTPUT_DIR stands in for /output.
+// NEON TIDE — gta6-01 entry program (Node 22, standard library only). The game
+// is this directory's game/ folder, plain static files a desktop browser loads
+// offline (game/index.html and its ES modules, three.js vendored minified under
+// game/vendor/), and the program hands it in: it copies game/ and screenshots/
+// from beside this file to /output and writes /output/dossier.json, the summary
+// the judge reads, with the vendored make.fun library.
+//
+// Round 5 fix: /output may be a mount volume in the grader, so this program
+// NEVER removes /output itself — it only removes the entries INSIDE /output,
+// then recreates the trees it copies. (Round 4 was rejected because main.ts
+// removed /output itself: "Device or resource busy".)
+//
+// Serve it locally with `node serve.ts`, then open http://localhost:8080.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { buildDossier } from './vendor/makefun-game.ts';
-import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = fileURLToPath(new URL('.', import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function copyTree(src: string, dest: string): void {
-  rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dest, { recursive: true });
-  for (const entry of readdirSync(src, { withFileTypes: true })) {
-    const from = join(src, entry.name);
-    const to = join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyTree(from, to);
-    } else if (entry.isFile()) {
-      copyFileSync(from, to);
-    }
-  }
+// Create /output if it is missing, but never delete it: it may be a mount.
+mkdirSync(out, { recursive: true });
+// Clear only the CONTENTS of /output (files and subdirectories), one entry at
+// a time. Removing /output itself is forbidden — see the header note.
+for (const entry of readdirSync(out)) {
+  rmSync(join(out, entry), { recursive: true, force: true });
 }
 
-// Start from a clean output directory: a re-run after re-capturing shots
-// must never leave a stale file (for example a removed screenshot) in the
-// output the dossier is built from.
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-copyTree(join(repoRoot, 'game'), join(outDir, 'game'));
-copyTree(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
-
-const dossier = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-});
-writeFileSync(join(outDir, 'dossier.json'), dossier);
-
-const doc = JSON.parse(new TextDecoder().decode(dossier));
-console.log(
-  'NEON TIDE dossier: ' + Buffer.byteLength(doc.text, 'utf8') + ' text bytes, '
-  + doc.images.length + ' screenshots, cover ' + doc.images[doc.cover].name
-  + ', dossier ' + dossier.length + ' bytes'
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
+// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
+// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
+// screenshots/ and dossier.json).
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
 );

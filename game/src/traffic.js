@@ -1,198 +1,150 @@
-// NEON TIDE — traffic.js
-// Civilian cars and pedestrians. Cars loop around city blocks on the road
-// centrelines; pedestrians stroll the sidewalks and turn at intersections.
-// They are scenery with simple rules, and they stop for the player in front
-// of them instead of driving through.
+// Civilian traffic and pedestrians. Cars drive the road grid and turn at
+// intersections; pedestrians wander the sidewalks. Both stay out of buildings
+// because they never leave the roads.
+import { CITY } from './config.js';
+import { randInt, randPick, randRange } from './random.js';
 
-import * as THREE from '../vendor/three.module.min.js';
-import { CFG } from './config.js';
+const CAR_COLORS = [0xc23b3b, 0x3b6ec2, 0xd8a13b, 0x4a9e6a, 0x8a5fc2, 0xc2c2c2, 0x2b2b33, 0xd86a3b];
+const PED_COLORS = [0xd8d3c8, 0x6a7fc2, 0xc26a8a, 0x7fc26a, 0xc2a13b, 0x9a8ac2];
+const TRAFFIC_CARS = 14;
+const PEDS = 18;
 
-const CAR_COLORS = [0x8a2f2f, 0x2f5d8a, 0x3a6b46, 0x6b5a2e, 0x4a4a55, 0x7a3a6b, 0x2e6b6b, 0x555f2e];
-const PED_COLORS = [0xd8d8d8, 0xff9f1c, 0x2effc4, 0xff5a5a, 0x9db8ff, 0xe2b8ff];
+let nextId = 1;
 
-function makeCivilianCar(color) {
-  const g = new THREE.Group();
-  const bodyMat = new THREE.MeshLambertMaterial({ color });
-  const glassMat = new THREE.MeshLambertMaterial({ color: 0x0e1620 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.62, 4.1), bodyMat);
-  body.position.y = 0.55;
-  g.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 2.1), glassMat);
-  cabin.position.set(0, 1.05, -0.25);
-  g.add(cabin);
-  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0 });
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2233 });
-  for (const s of [-0.65, 0.65]) {
-    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, 0.1), lightMat);
-    hl.position.set(s, 0.62, 2.06);
-    g.add(hl);
-    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, 0.1), tailMat);
-    tl.position.set(s, 0.62, -2.06);
-    g.add(tl);
-  }
-  return g;
+export function makeCar(x, z, heading, color, driver) {
+  return {
+    id: `car-${nextId++}`,
+    x, z, heading, speed: 0, color,
+    driver: driver || 'traffic', // traffic | player | police | parked
+    police: false, name: null, state: null,
+    cruise: 11,
+    turnAt: null,
+  };
 }
 
-function makePedestrian(color) {
-  const g = new THREE.Group();
-  const jacket = new THREE.MeshLambertMaterial({ color });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xc9a184 });
-  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.8, 0.26), new THREE.MeshLambertMaterial({ color: 0x1c1e26 }));
-  legs.position.y = 0.4;
-  g.add(legs);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.32), jacket);
-  torso.position.y = 1.15;
-  g.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), skin);
-  head.position.y = 1.68;
-  g.add(head);
-  return g;
+export function initTraffic(G) {
+  const rng = G.rng;
+  G.cars = [];
+  G.peds = [];
+  const lines = G.world.lines;
+  for (let i = 0; i < TRAFFIC_CARS; i += 1) {
+    const axis = rng() < 0.5 ? 'x' : 'z';
+    const line = randPick(rng, lines);
+    const along = randRange(rng, -CITY.half + 20, CITY.half - 20);
+    let heading;
+    let x;
+    let z;
+    if (axis === 'x') {
+      // On an east-west road: drive east or west, in the right-hand lane.
+      const east = rng() < 0.5;
+      heading = east ? Math.PI / 2 : -Math.PI / 2;
+      x = along;
+      z = line + (east ? 3.5 : -3.5);
+    } else {
+      // On a north-south road: drive south or north, in the right-hand lane.
+      const south = rng() < 0.5;
+      heading = south ? 0 : Math.PI;
+      x = line + (south ? -3.5 : 3.5);
+      z = along;
+    }
+    const car = makeCar(x, z, heading, randPick(rng, CAR_COLORS), 'traffic');
+    car.cruise = randRange(rng, 8, 14);
+    car.speed = car.cruise;
+    G.cars.push(car);
+  }
+  for (let i = 0; i < PEDS; i += 1) {
+    const line = randPick(rng, lines);
+    G.peds.push({
+      id: `ped-${nextId++}`,
+      x: line + randPick(rng, [-CITY.roadHalf - 2.5, CITY.roadHalf + 2.5]),
+      z: randRange(rng, -CITY.half + 20, CITY.half - 20),
+      heading: randRange(rng, 0, Math.PI * 2),
+      speed: randRange(rng, 1.0, 1.9),
+      color: randPick(rng, PED_COLORS),
+      wander: randRange(rng, 2, 8),
+    });
+  }
 }
 
-export class Traffic {
-  constructor(game) {
-    this.g = game;
-    this.cars = [];
-    this.peds = [];
-    this._buildCars();
-    this._buildPeds();
+/** The nearest drivable car to a point (traffic or parked), within maxDist. */
+export function nearestCar(G, x, z, maxDist) {
+  let best = null;
+  let bestD = maxDist;
+  for (const car of G.cars) {
+    if (car.driver === 'police') continue;
+    const dx = car.x - x;
+    const dz = car.z - z;
+    const d = Math.hypot(dx, dz);
+    if (d < bestD) { bestD = d; best = car; }
   }
+  return best;
+}
 
-  _loopForBlock(rng) {
-    // A rectangular loop on the road centrelines around one block.
-    const lines = CFG.roadLines;
-    const i = rng.int(0, lines.length - 2);
-    const j = rng.int(0, lines.length - 2);
-    const x0 = lines[i], x1 = lines[i + 1];
-    const z0 = lines[j], z1 = lines[j + 1];
-    return [
-      { x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 },
-    ];
-  }
+function nearestLine(lines, v) {
+  let best = lines[0];
+  for (const l of lines) if (Math.abs(l - v) < Math.abs(best - v)) best = l;
+  return best;
+}
 
-  _buildCars() {
-    const rng = this.g.rng;
-    for (let n = 0; n < CFG.traffic.carCount; n++) {
-      const loop = this._loopForBlock(rng);
-      const seg = rng.int(0, 3);
-      const t = rng.f();
-      const a = loop[seg];
-      const b = loop[(seg + 1) % 4];
-      const x = a.x + (b.x - a.x) * t;
-      const z = a.z + (b.z - a.z) * t;
-      const mesh = makeCivilianCar(rng.pick(CAR_COLORS));
-      mesh.position.set(x, 0, z);
-      this.g.scene.add(mesh);
-      this.cars.push({
-        mesh, loop, seg, t,
-        speed: rng.range(CFG.traffic.carSpeedMin, CFG.traffic.carSpeedMax),
-        lane: rng.sign() * 2.5,
-        heading: 0,
-        parked: false,
-      });
-    }
-  }
-
-  _buildPeds() {
-    const rng = this.g.rng;
-    for (let n = 0; n < CFG.traffic.pedCount; n++) {
-      const line = rng.pick(CFG.roadLines);
-      const along = rng.range(-200, 200);
-      const axis = rng.chance(0.5) ? 'x' : 'z';
-      const side = rng.sign();
-      const x = axis === 'x' ? line + side * 7.2 : along;
-      const z = axis === 'x' ? along : line + side * 7.2;
-      const mesh = makePedestrian(rng.pick(PED_COLORS));
-      mesh.position.set(x, 0, z);
-      this.g.scene.add(mesh);
-      this.peds.push({
-        mesh, axis, line, side,
-        along,
-        dir: rng.sign(),
-        speed: rng.range(CFG.traffic.pedSpeedMin, CFG.traffic.pedSpeedMax),
-        walkPhase: rng.range(0, Math.PI * 2),
-      });
-    }
-  }
-
-  // Remove a car from the traffic flow (stolen by the player). Returns it.
-  stealCar(car) {
-    const i = this.cars.indexOf(car);
-    if (i >= 0) this.cars.splice(i, 1);
-    car.parked = true;
-    return car;
-  }
-
-  update(dt) {
-    const g = this.g;
-    const p = g.player;
-    // ---- cars: follow their block loop ----
-    for (const car of this.cars) {
-      // Stop for the player in front of the car.
-      let blocked = false;
-      if (p) {
-        const dx = p.pos.x - car.mesh.position.x;
-        const dz = p.pos.z - car.mesh.position.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist < 6) {
-          const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
-          const ahead = dx * fx + dz * fz;
-          if (ahead > 0) blocked = true;
-        }
+export function updateTraffic(G, dt) {
+  const lines = G.world.lines;
+  const P = G.player;
+  for (const car of G.cars) {
+    if (car.driver !== 'traffic') continue;
+    // At an intersection, sometimes turn left or right onto the crossing road,
+    // snapping into that road's right-hand lane.
+    const nx = nearestLine(lines, car.x);
+    const nz = nearestLine(lines, car.z);
+    const distToCross = Math.hypot(car.x - nx, car.z - nz);
+    if (distToCross < 4 && !car.turnAt) {
+      car.turnAt = true;
+      if (G.rng() < 0.35) {
+        car.heading += (G.rng() < 0.5 ? 1 : -1) * Math.PI / 2;
+        // Right-hand lane of the new road: right = (-cos h, sin h).
+        car.x = nx + -Math.cos(car.heading) * 3.5;
+        car.z = nz + Math.sin(car.heading) * 3.5;
       }
-      const speed = blocked ? 0 : car.speed;
-      let remaining = speed * dt;
-      let guard = 0;
-      while (remaining > 0.001 && guard++ < 4) {
-        const a = car.loop[car.seg];
-        const b = car.loop[(car.seg + 1) % 4];
-        const segLen = Math.hypot(b.x - a.x, b.z - a.z);
-        const segLeft = (1 - car.t) * segLen;
-        if (remaining < segLeft) {
-          car.t += remaining / segLen;
-          remaining = 0;
-        } else {
-          remaining -= segLeft;
-          car.seg = (car.seg + 1) % 4;
-          car.t = 0;
-        }
-      }
-      const a = car.loop[car.seg];
-      const b = car.loop[(car.seg + 1) % 4];
-      const cx = a.x + (b.x - a.x) * car.t;
-      const cz = a.z + (b.z - a.z) * car.t;
-      // Lane offset, perpendicular to the direction of travel.
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const px = -dz / len, pz = dx / len;
-      car.mesh.position.set(cx + px * car.lane, 0, cz + pz * car.lane);
-      car.heading = Math.atan2(dx, dz);
-      car.mesh.rotation.y = car.heading;
     }
-    // ---- pedestrians: stroll a sidewalk, turn at intersections ----
-    for (const ped of this.peds) {
-      ped.along += ped.dir * ped.speed * dt;
-      if (ped.along > 208) { ped.along = 208; ped.dir = -1; }
-      if (ped.along < -208) { ped.along = -208; ped.dir = 1; }
-      // At a road line, sometimes turn onto the crossing road.
-      const nearLine = CFG.roadLines.some((l) => Math.abs(ped.along - l) < 0.6);
-      if (nearLine && this.g.rng.chance(dt * 0.25)) {
-        const other = this.g.rng.chance(0.5) ? 'x' : 'z';
-        if (other !== ped.axis) {
-          const oldLine = ped.line;
-          ped.axis = other;
-          ped.line = ped.along;
-          ped.along = oldLine;
-          ped.side = this.g.rng.sign();
-        }
-      }
-      const x = ped.axis === 'x' ? ped.line + ped.side * 7.2 : ped.along;
-      const z = ped.axis === 'x' ? ped.along : ped.line + ped.side * 7.2;
-      ped.mesh.position.set(x, 0, z);
-      const heading = ped.axis === 'x' ? (ped.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (ped.dir > 0 ? 0 : Math.PI);
-      ped.mesh.rotation.y = heading;
-      ped.walkPhase += dt * ped.speed * 3;
-      ped.mesh.position.y = Math.abs(Math.sin(ped.walkPhase)) * 0.06;
+    if (distToCross > 8) car.turnAt = false;
+    // Slow for the car ahead (including the player's car).
+    let target = car.cruise;
+    for (const other of G.cars) {
+      if (other === car) continue;
+      const dx = other.x - car.x;
+      const dz = other.z - car.z;
+      const ahead = dx * Math.sin(car.heading) + dz * Math.cos(car.heading);
+      const side = Math.abs(dx * Math.cos(car.heading) - dz * Math.sin(car.heading));
+      if (ahead > 0 && ahead < 11 && side < 3) { target = 0; break; }
+    }
+    // Slow for the player on foot crossing.
+    if (P.onFoot) {
+      const dx = P.x - car.x;
+      const dz = P.z - car.z;
+      const ahead = dx * Math.sin(car.heading) + dz * Math.cos(car.heading);
+      const side = Math.abs(dx * Math.cos(car.heading) - dz * Math.sin(car.heading));
+      if (ahead > 0 && ahead < 9 && side < 3) target = 0;
+    }
+    car.speed += Math.max(-22 * dt, Math.min(10 * dt, target - car.speed));
+    car.x += Math.sin(car.heading) * car.speed * dt;
+    car.z += Math.cos(car.heading) * car.speed * dt;
+    // Wrap around the city edge so traffic never runs out.
+    if (car.x > CITY.half - 4) car.x = -CITY.half + 6;
+    if (car.x < -CITY.half + 4) car.x = CITY.half - 6;
+    if (car.z > CITY.half - 4) car.z = -CITY.half + 6;
+    if (car.z < -CITY.half + 4) car.z = CITY.half - 6;
+  }
+  for (const ped of G.peds) {
+    ped.wander -= dt;
+    if (ped.wander <= 0) {
+      ped.wander = randRange(G.rng, 2, 9);
+      ped.heading += randRange(G.rng, -1.2, 1.2);
+    }
+    ped.x += Math.sin(ped.heading) * ped.speed * dt;
+    ped.z += Math.cos(ped.heading) * ped.speed * dt;
+    if (Math.abs(ped.x) > CITY.half - 8 || Math.abs(ped.z) > CITY.half - 8) {
+      ped.heading += Math.PI;
+      ped.x = Math.max(-CITY.half + 10, Math.min(CITY.half - 10, ped.x));
+      ped.z = Math.max(-CITY.half + 10, Math.min(CITY.half - 10, ped.z));
     }
   }
 }
